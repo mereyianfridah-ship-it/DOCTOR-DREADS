@@ -1,0 +1,68 @@
+{
+  "booking": {
+    "openDays": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "slots": [
+      "09:00",
+      "10:00",
+      "11:00",
+      "12:00",
+      "14:00",
+      "15:00",
+      "16:00",
+      "17:00"
+    ],
+    "advanceDays": 45,
+    "depositPercent": 30,
+    "inPersonConsultationFee": null,
+    "onlineConsultationFree": true
+  },
+  "checkout": {
+    "deliveryAreas": [
+      {
+        "id": "rongai",
+        "label": "Rongai",
+        "fee": 200
+      },
+      {
+        "id": "ngong",
+        "label": "Ngong / Kiserian",
+        "fee": 300
+      },
+      {
+        "id": "nairobi",
+        "label": "Nairobi (other areas)",
+        "fee": 400
+      },
+      {
+        "id": "outside",
+        "label": "Outside Nairobi (courier)",
+        "fee": 600
+      }
+    ],
+    "collectionLabel": "Collect from Rongai (paid online first)"
+  },
+  "stylists": [
+    {
+      "id": "auto",
+      "name": "Assign automatically",
+      "note": "We'll match you with an available stylist"
+    },
+    {
+      "id": "stylist-a",
+      "name": "Stylist A (demo)",
+      "note": "Placeholder profile"
+    },
+    {
+      "id": "stylist-b",
+      "name": "Stylist B (demo)",
+      "note": "Placeholder profile"
+    }
+  ]
+}

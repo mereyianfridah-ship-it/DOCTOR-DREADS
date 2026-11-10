@@ -75,6 +75,10 @@ public/images/  placeholder artwork (SVG), to be replaced with real photography
 - The brand mark is a temporary text mark, not an official logo.
 - Legal pages are draft placeholders and not legal advice.
 
+## Backend
+
+A working API now lives in [`backend/`](backend/README.md) (Express + SQLite + M-Pesa, with a mock payment mode). The frontend forms are not wired to it yet.
+
 ## Future backend integration
 
 | Area | Planned integration |

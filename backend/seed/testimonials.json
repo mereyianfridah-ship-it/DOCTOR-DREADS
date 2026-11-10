@@ -1,0 +1,20 @@
+[
+  {
+    "id": "t1",
+    "name": "Sample reviewer",
+    "detail": "Placeholder · Loc installation",
+    "quote": "Placeholder testimonial. A real customer's words about their loc installation experience will appear here."
+  },
+  {
+    "id": "t2",
+    "name": "Sample reviewer",
+    "detail": "Placeholder · Loc maintenance",
+    "quote": "Placeholder testimonial. Replace this with a genuine review about a maintenance appointment."
+  },
+  {
+    "id": "t3",
+    "name": "Sample reviewer",
+    "detail": "Placeholder · Hair-care products",
+    "quote": "Placeholder testimonial. Replace this with a genuine review about a Dr Dread Kenya product."
+  }
+]
