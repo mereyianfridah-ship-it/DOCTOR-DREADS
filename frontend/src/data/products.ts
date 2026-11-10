@@ -1,0 +1,140 @@
+import type { Product } from "../types";
+
+/**
+ * DEMONSTRATION PRODUCTS. These are NOT real inventory.
+ * Prices (integer KSh) and stock levels are samples only.
+ */
+export const productCategories = [
+  "Moisturizers",
+  "Moulding Gels",
+  "Natural Oils",
+  "Accessories",
+] as const;
+
+export const products: Product[] = [
+  {
+    slug: "loc-butter-moisturizer",
+    name: "Loc Butter Moisturizer",
+    category: "Moisturizers",
+    shortDescription: "Rich daily moisture for locs and scalp.",
+    description:
+      "A demonstration product listing for a rich, daily loc moisturizer. Replace this description with the real product details, ingredients and usage directions.",
+    price: 1200, stock: 24, size: "250 ml",
+    images: ["/images/product-moisturizer-1.svg", "/images/product-moisturizer-2.svg"],
+    featured: true,
+  },
+  {
+    slug: "light-hydrating-lotion",
+    name: "Light Hydrating Lotion",
+    category: "Moisturizers",
+    shortDescription: "Lightweight hydration that won't weigh hair down.",
+    description:
+      "Demonstration listing for a lightweight lotion. Replace with the real product information.",
+    price: 950, stock: 5, size: "200 ml",
+    images: ["/images/product-moisturizer-2.svg", "/images/product-moisturizer-3.svg"],
+  },
+  {
+    slug: "scalp-soothing-cream",
+    name: "Scalp Soothing Cream",
+    category: "Moisturizers",
+    shortDescription: "Comforting cream for dry, tight scalps.",
+    description: "Demonstration listing. Replace with real product details.",
+    price: 1100, stock: 0, size: "150 ml",
+    images: ["/images/product-moisturizer-3.svg", "/images/product-moisturizer-1.svg"],
+  },
+  {
+    slug: "strong-hold-moulding-gel",
+    name: "Strong Hold Moulding Gel",
+    category: "Moulding Gels",
+    shortDescription: "Firm, flake-free hold for neat roots and styles.",
+    description:
+      "Demonstration listing for a strong-hold moulding gel. Replace with real product details and directions.",
+    price: 800, stock: 40, size: "300 ml",
+    images: ["/images/product-gel-1.svg", "/images/product-gel-2.svg"],
+    featured: true,
+  },
+  {
+    slug: "soft-hold-styling-gel",
+    name: "Soft Hold Styling Gel",
+    category: "Moulding Gels",
+    shortDescription: "Flexible hold with a natural finish.",
+    description: "Demonstration listing. Replace with real product details.",
+    price: 750, stock: 18, size: "250 ml",
+    images: ["/images/product-gel-2.svg", "/images/product-gel-3.svg"],
+  },
+  {
+    slug: "edge-control-gel",
+    name: "Edge Control Gel",
+    category: "Moulding Gels",
+    shortDescription: "Smooths and defines edges all day.",
+    description: "Demonstration listing. Replace with real product details.",
+    price: 650, stock: 30, size: "100 ml",
+    images: ["/images/product-gel-3.svg", "/images/product-gel-1.svg"],
+  },
+  {
+    slug: "natural-hair-growth-oil",
+    name: "Natural Hair & Scalp Oil",
+    category: "Natural Oils",
+    shortDescription: "A nourishing blend for scalp and hair.",
+    description:
+      "Demonstration listing for a natural oil blend. Replace with real ingredient information.",
+    price: 1500, stock: 15, size: "100 ml",
+    images: ["/images/product-oil-1.svg", "/images/product-oil-2.svg"],
+    featured: true,
+  },
+  {
+    slug: "lightweight-loc-oil",
+    name: "Lightweight Loc Oil",
+    category: "Natural Oils",
+    shortDescription: "Adds shine without heaviness.",
+    description: "Demonstration listing. Replace with real product details.",
+    price: 1000, stock: 22, size: "60 ml",
+    images: ["/images/product-oil-2.svg", "/images/product-oil-3.svg"],
+  },
+  {
+    slug: "castor-oil-blend",
+    name: "Castor Oil Blend",
+    category: "Natural Oils",
+    shortDescription: "Thick, sealing oil for dry ends.",
+    description: "Demonstration listing. Replace with real product details.",
+    price: 1300, stock: 3, size: "120 ml",
+    images: ["/images/product-oil-3.svg", "/images/product-oil-1.svg"],
+  },
+  {
+    slug: "wide-tooth-comb",
+    name: "Wide-Tooth Comb",
+    category: "Accessories",
+    shortDescription: "Gentle detangling for natural hair.",
+    description: "Demonstration listing. Replace with real product details.",
+    price: 350, stock: 50, size: "Standard",
+    images: ["/images/product-acc-1.svg", "/images/product-acc-2.svg"],
+  },
+  {
+    slug: "satin-sleep-bonnet",
+    name: "Satin Sleep Bonnet",
+    category: "Accessories",
+    shortDescription: "Protect locs and retain moisture overnight.",
+    description: "Demonstration listing. Replace with real product details.",
+    price: 600, stock: 35, size: "One size",
+    images: ["/images/product-acc-2.svg", "/images/product-acc-3.svg"],
+  },
+  {
+    slug: "loc-headband-set",
+    name: "Loc Headband Set",
+    category: "Accessories",
+    shortDescription: "Soft headbands to hold styles in place.",
+    description: "Demonstration listing. Replace with real product details.",
+    price: 450, stock: 28, size: "Set of 3",
+    images: ["/images/product-acc-3.svg", "/images/product-acc-1.svg"],
+  },
+];
+
+export const getProduct = (slug: string) => products.find((p) => p.slug === slug);
+export const MAX_QTY_PER_LINE = 10;
+export const maxQuantity = (p: Product) => Math.min(p.stock, MAX_QTY_PER_LINE);
+export const stockStatus = (p: Product): { label: string; tone: "ok" | "low" | "out" } =>
+  p.stock === 0
+    ? { label: "Out of stock", tone: "out" }
+    : p.stock <= 5
+      ? { label: `Only ${p.stock} left`, tone: "low" }
+      : { label: "In stock", tone: "ok" };
