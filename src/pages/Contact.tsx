@@ -30,7 +30,7 @@ export default function Contact() {
           </div>
           <div>
             <h2 className="text-3xl">Find us</h2>
-            <p className="mt-2 text-sm text-charcoal/60">Contact details below are placeholders. Edit them in <code>src/config/site.ts</code>.</p>
+            <p className="mt-2 text-sm text-charcoal/60">Some contact details are still placeholders and will be replaced by the business.</p>
             <ul className="mt-6 space-y-5">
               <Row icon={<MapPin className="h-5 w-5" />} label="Location" text={siteConfig.location} href={null} />
               <Row icon={<Phone className="h-5 w-5" />} label="Phone" text={contact.phoneDisplay} href={contact.phoneHref} />

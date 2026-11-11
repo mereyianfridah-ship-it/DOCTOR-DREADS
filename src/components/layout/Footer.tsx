@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { MapPin } from "lucide-react";
 import { siteConfig } from "../../config/site";
-import { services } from "../../data/services";
+import { useCatalog } from "../../context/CatalogContext";
 import { SocialIcon } from "../common/SocialIcon";
 import { BrandMark } from "./BrandMark";
 
@@ -26,6 +26,7 @@ function ContactLine({ text, href }: { text: string; href: string | null }) {
 
 export function Footer() {
   const { contact, social } = siteConfig;
+  const { services } = useCatalog();
   return (
     <footer className="bg-charcoal text-cream/80">
       <div className="container-page grid gap-12 py-16 md:grid-cols-2 lg:grid-cols-4">

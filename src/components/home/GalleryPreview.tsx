@@ -1,15 +1,19 @@
 import { Link } from "react-router-dom";
 import { Play } from "lucide-react";
-import { galleryItems } from "../../data/gallery";
+import { getGallery } from "../../api/endpoints";
+import { useAsync } from "../../hooks/useAsync";
 import { ButtonLink } from "../common/Button";
 import { DemoNotice } from "../common/DemoNotice";
 import { SectionHeading } from "../common/SectionHeading";
 import { BeforeAfter } from "../gallery/BeforeAfter";
 
 export function GalleryPreview() {
+  const { data } = useAsync((s) => getGallery(s), []);
+  const galleryItems = data ?? [];
   const stills = galleryItems.filter((g) => !g.isVideo && !g.afterImage).slice(0, 4);
   const transformation = galleryItems.find((g) => g.afterImage);
   const video = galleryItems.find((g) => g.isVideo);
+  if (galleryItems.length === 0) return null;
   return (
     <section className="section bg-cream/50">
       <div className="container-page">

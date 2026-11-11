@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { isOpenDay } from "../../utils/availability";
 import { parseISODate, toISODate } from "../../utils/format";
 
 interface Props {
@@ -8,11 +7,13 @@ interface Props {
   onChange: (iso: string) => void;
   minDate: Date;
   maxDate: Date;
+  /** Days of the week the salon takes bookings (0 = Sunday), from the business rules. */
+  openDays: readonly number[];
 }
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function DatePicker({ value, onChange, minDate, maxDate }: Props) {
+export function DatePicker({ value, onChange, minDate, maxDate, openDays }: Props) {
   const initial = value ? parseISODate(value) : minDate;
   const [view, setView] = useState(new Date(initial.getFullYear(), initial.getMonth(), 1));
 
@@ -50,7 +51,7 @@ export function DatePicker({ value, onChange, minDate, maxDate }: Props) {
           if (!d) return <div key={`e${i}`} />;
           const iso = toISODate(d);
           const t = stripTime(d);
-          const disabled = t < stripTime(minDate) || t > stripTime(maxDate) || !isOpenDay(iso);
+          const disabled = t < stripTime(minDate) || t > stripTime(maxDate) || !openDays.includes(d.getDay());
           const selected = iso === value;
           return (
             <button
@@ -69,7 +70,7 @@ export function DatePicker({ value, onChange, minDate, maxDate }: Props) {
           );
         })}
       </div>
-      <p className="mt-4 text-xs text-charcoal/55">Greyed-out days are unavailable (demo availability).</p>
+      <p className="mt-4 text-xs text-charcoal/55">Greyed-out days are closed or outside the booking window. Time slots are checked live on the next steps.</p>
     </div>
   );
 }

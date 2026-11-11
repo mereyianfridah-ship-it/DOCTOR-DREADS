@@ -7,7 +7,9 @@ import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
 import { SearchBar } from "../components/common/SearchBar";
 import { ProductGrid } from "../components/shop/ProductGrid";
-import { productCategories, products } from "../data/products";
+import { QueryState } from "../components/common/QueryState";
+import { useCatalog } from "../context/CatalogContext";
+import { categoriesOf } from "../utils/product";
 
 type Sort = "featured" | "price-asc" | "price-desc" | "name";
 const priceRanges = [
@@ -18,6 +20,8 @@ const priceRanges = [
 ];
 
 export default function Shop() {
+  const { products, status, error, reload } = useCatalog();
+  const productCategories = useMemo(() => categoriesOf(products), [products]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [range, setRange] = useState("all");
@@ -38,7 +42,7 @@ export default function Shop() {
     else if (sort === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
     else sorted.sort((a, b) => Number(!!b.featured) - Number(!!a.featured));
     return sorted;
-  }, [query, category, range, sort]);
+  }, [query, category, range, sort, products]);
 
   const reset = () => {
     setQuery("");
@@ -55,6 +59,7 @@ export default function Shop() {
           <DemoNotice className="mb-8">
             <strong>Demonstration catalogue.</strong> Products, prices (KSh) and stock levels are samples, not real inventory.
           </DemoNotice>
+          <QueryState loading={status === "loading"} error={status === "error" ? error : null} onRetry={() => void reload()}>
           <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
             <SearchBar value={query} onChange={setQuery} />
             <div>
@@ -91,6 +96,7 @@ export default function Shop() {
               />
             )}
           </div>
+          </QueryState>
         </div>
       </section>
     </>

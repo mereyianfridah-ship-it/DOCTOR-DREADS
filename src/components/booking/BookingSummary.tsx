@@ -1,5 +1,4 @@
 import type { Service } from "../../types";
-import { stylists } from "../../config/site";
 import { formatKSh, formatLongDate } from "../../utils/format";
 
 export interface BookingDraft {
@@ -14,7 +13,7 @@ export interface BookingDraft {
   notes: string;
 }
 
-export function BookingSummary({ draft, service, deposit }: { draft: BookingDraft; service?: Service; deposit?: number | null }) {
+export function BookingSummary({ draft, service, deposit, stylists }: { draft: BookingDraft; service?: Service; deposit?: number | null; stylists: { id: string; name: string }[] }) {
   const row = (label: string, value: string) => (
     <div className="flex justify-between gap-4 py-2 text-sm">
       <dt className="text-charcoal/60">{label}</dt>
@@ -24,7 +23,7 @@ export function BookingSummary({ draft, service, deposit }: { draft: BookingDraf
   return (
     <aside className="rounded-2xl border border-charcoal/10 bg-white p-6">
       <h2 className="text-2xl">Booking summary</h2>
-      <p className="mt-1 text-xs text-brown">Demonstration only. Not a real booking.</p>
+      <p className="mt-1 text-xs text-charcoal/60">Not confirmed until your deposit is received.</p>
       <dl className="mt-4 divide-y divide-charcoal/10">
         {row("Service", service?.name ?? "")}
         {row("Location", draft.location === "salon" ? "Physical salon" : draft.location === "mobile" ? "Mobile service" : "")}
@@ -37,12 +36,12 @@ export function BookingSummary({ draft, service, deposit }: { draft: BookingDraf
       {service && (
         <div className="mt-4 border-t border-charcoal/10 pt-4 text-sm">
           <div className="flex justify-between">
-            <span>Sample price</span>
+            <span>Price</span>
             <span className="font-semibold">{service.priceFrom === null ? "Quote" : formatKSh(service.priceFrom)}</span>
           </div>
           {deposit != null && (
             <div className="mt-2 flex justify-between">
-              <span>Sample deposit</span>
+              <span>Deposit</span>
               <span className="font-semibold">{formatKSh(deposit)}</span>
             </div>
           )}

@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import type { DetailedLine } from "../../context/CartContext";
 import { useCart } from "../../context/CartContext";
-import { maxQuantity } from "../../data/products";
+import { maxQuantity } from "../../utils/product";
 import { formatKSh } from "../../utils/format";
 import { QuantitySelector } from "./QuantitySelector";
 

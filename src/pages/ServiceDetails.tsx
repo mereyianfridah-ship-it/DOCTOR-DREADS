@@ -5,13 +5,22 @@ import { DemoNotice } from "../components/common/DemoNotice";
 import { SectionHeading } from "../components/common/SectionHeading";
 import { PriceLabel } from "../components/services/PriceLabel";
 import { ServiceCard } from "../components/services/ServiceCard";
-import { getService, services } from "../data/services";
+import { QueryState } from "../components/common/QueryState";
+import { useCatalog } from "../context/CatalogContext";
 import NotFound from "./NotFound";
 
 export default function ServiceDetails() {
   const { slug = "" } = useParams();
+  const { status, error, reload, getService } = useCatalog();
+  if (status !== "ready") return <QueryState loading={status === "loading"} error={error} onRetry={() => void reload()}><></></QueryState>;
   const service = getService(slug);
   if (!service) return <NotFound />;
+  return <ServiceView slug={slug} />;
+}
+
+function ServiceView({ slug }: { slug: string }) {
+  const { services, getService } = useCatalog();
+  const service = getService(slug)!;
 
   const consultation = service.bookingType === "consultation";
   const related = services.filter((s) => s.slug !== service.slug && s.category === service.category).concat(services.filter((s) => s.slug !== service.slug && s.category !== service.category)).slice(0, 3);

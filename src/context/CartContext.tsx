@@ -1,7 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { CartLine, Product } from "../types";
-import { getProduct, maxQuantity } from "../data/products";
+import { useCatalog } from "./CatalogContext";
+import { sanitiseCart } from "../utils/cart";
+import { maxQuantity } from "../utils/product";
 import { readStorage, writeStorage } from "../utils/storage";
 
 const STORAGE_KEY = "drdread.cart.v1";
@@ -16,6 +18,8 @@ interface CartContextValue {
   lines: DetailedLine[];
   itemCount: number;
   subtotal: number;
+  /** false until the product list has loaded (prices and stock come from the API). */
+  ready: boolean;
   drawerOpen: boolean;
   openDrawer: () => void;
   closeDrawer: () => void;
@@ -27,57 +31,50 @@ interface CartContextValue {
 
 const CartContext = createContext<CartContextValue | null>(null);
 
-/** Drops unknown products and clamps quantities to valid integers (stock-aware). */
-function sanitise(raw: CartLine[]): CartLine[] {
-  if (!Array.isArray(raw)) return [];
-  const out: CartLine[] = [];
-  for (const l of raw) {
-    const p = l && typeof l.productId === "string" ? getProduct(l.productId) : undefined;
-    if (!p || p.stock === 0) continue;
-    const q = Math.min(maxQuantity(p), Math.max(1, Math.floor(Number(l.quantity) || 1)));
-    out.push({ productId: p.slug, quantity: q });
-  }
-  return out;
-}
-
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [cart, setCart] = useState<CartLine[]>(() => sanitise(readStorage<CartLine[]>(STORAGE_KEY, [])));
+  const { products, status, getProduct } = useCatalog();
+  const ready = status === "ready";
+  const [cart, setCart] = useState<CartLine[]>(() => {
+    const raw = readStorage<CartLine[]>(STORAGE_KEY, []);
+    return Array.isArray(raw) ? raw.filter((l) => l && typeof l.productId === "string") : [];
+  });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const getProductRef = useRef(getProduct);
+  getProductRef.current = getProduct;
+
+  // Once real products have loaded, reconcile the stored cart with current stock (never before: that would wipe it).
+  useEffect(() => {
+    if (ready) setCart((prev) => sanitiseCart(prev, products));
+  }, [ready, products]);
 
   useEffect(() => {
-    writeStorage(STORAGE_KEY, cart);
-  }, [cart]);
+    if (ready) writeStorage(STORAGE_KEY, cart);
+  }, [cart, ready]);
 
   const addItem = useCallback((slug: string, quantity = 1) => {
-    const p = getProduct(slug);
+    const p = getProductRef.current(slug);
     if (!p) return { ok: false, message: "Product not found" };
     if (p.stock === 0) return { ok: false, message: "This product is out of stock" };
     const limit = maxQuantity(p);
-    let message: string | undefined;
-    setCart((prev) => {
-      const existing = prev.find((l) => l.productId === slug);
-      const current = existing ? existing.quantity : 0;
-      const next = Math.min(limit, current + Math.max(1, Math.floor(quantity)));
-      if (next === current) message = `Maximum quantity (${limit}) reached`;
-      return existing
+    const current = cart.find((l) => l.productId === slug)?.quantity ?? 0;
+    const next = Math.min(limit, current + Math.max(1, Math.floor(quantity)));
+    if (next === current) return { ok: false, message: `Maximum quantity (${limit}) reached` };
+    setCart((prev) =>
+      prev.some((l) => l.productId === slug)
         ? prev.map((l) => (l.productId === slug ? { ...l, quantity: next } : l))
-        : [...prev, { productId: slug, quantity: next }];
-    });
-    return { ok: !message, message };
-  }, []);
+        : [...prev, { productId: slug, quantity: next }],
+    );
+    return { ok: true };
+  }, [cart]);
 
-  const removeItem = useCallback((slug: string) => {
-    setCart((prev) => prev.filter((l) => l.productId !== slug));
-  }, []);
+  const removeItem = useCallback((slug: string) => setCart((prev) => prev.filter((l) => l.productId !== slug)), []);
 
   const setQuantity = useCallback((slug: string, quantity: number) => {
-    const p = getProduct(slug);
+    const p = getProductRef.current(slug);
     if (!p) return;
     const q = Math.floor(quantity);
     if (!Number.isFinite(q) || q < 1) return; // invalid quantities are ignored; use removeItem
-    setCart((prev) =>
-      prev.map((l) => (l.productId === slug ? { ...l, quantity: Math.min(maxQuantity(p), q) } : l)),
-    );
+    setCart((prev) => prev.map((l) => (l.productId === slug ? { ...l, quantity: Math.min(maxQuantity(p), q) } : l)));
   }, []);
 
   const clear = useCallback(() => setCart([]), []);
@@ -85,12 +82,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const lines = useMemo<DetailedLine[]>(
     () =>
       cart.flatMap((l) => {
-        const product = getProduct(l.productId);
-        return product
-          ? [{ product, quantity: l.quantity, lineTotal: product.price * l.quantity }]
-          : [];
+        const product = products.find((p) => p.slug === l.productId);
+        return product ? [{ product, quantity: l.quantity, lineTotal: product.price * l.quantity }] : [];
       }),
-    [cart],
+    [cart, products],
   );
 
   const value = useMemo<CartContextValue>(
@@ -98,15 +93,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
       lines,
       itemCount: lines.reduce((n, l) => n + l.quantity, 0),
       subtotal: lines.reduce((n, l) => n + l.lineTotal, 0),
+      ready,
       drawerOpen,
       openDrawer: () => setDrawerOpen(true),
       closeDrawer: () => setDrawerOpen(false),
-      addItem,
-      removeItem,
-      setQuantity,
-      clear,
+      addItem, removeItem, setQuantity, clear,
     }),
-    [lines, drawerOpen, addItem, removeItem, setQuantity, clear],
+    [lines, ready, drawerOpen, addItem, removeItem, setQuantity, clear],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

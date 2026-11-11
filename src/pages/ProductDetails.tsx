@@ -8,18 +8,23 @@ import { SectionHeading } from "../components/common/SectionHeading";
 import { ProductGrid } from "../components/shop/ProductGrid";
 import { QuantitySelector } from "../components/shop/QuantitySelector";
 import { useCart } from "../context/CartContext";
-import { getProduct, maxQuantity, products, stockStatus } from "../data/products";
+import { QueryState } from "../components/common/QueryState";
+import { useCatalog } from "../context/CatalogContext";
+import { maxQuantity, stockStatus } from "../utils/product";
 import { formatKSh } from "../utils/format";
 import NotFound from "./NotFound";
 
 export default function ProductDetails() {
   const { slug = "" } = useParams();
+  const { status, error, reload, getProduct } = useCatalog();
+  if (status !== "ready") return <QueryState loading={status === "loading"} error={error} onRetry={() => void reload()}><></></QueryState>;
   const product = getProduct(slug);
   // key by slug so state resets when navigating between products
   return product ? <ProductView key={product.slug} slug={slug} /> : <NotFound />;
 }
 
 function ProductView({ slug }: { slug: string }) {
+  const { products, getProduct } = useCatalog();
   const product = getProduct(slug)!;
   const { addItem, openDrawer } = useCart();
   const [qty, setQty] = useState(1);

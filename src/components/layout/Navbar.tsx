@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { Menu, ShoppingBag, User, X } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 import { ButtonLink } from "../common/Button";
 import { BrandMark } from "./BrandMark";
@@ -17,6 +18,8 @@ export const navLinks = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const { itemCount, openDrawer } = useCart();
+  const { user } = useAuth();
+  const accountHref = user ? "/account" : "/login";
   const location = useLocation();
 
   useEffect(() => setOpen(false), [location.pathname]);
@@ -63,7 +66,10 @@ export function Navbar() {
               </span>
             )}
           </button>
-          <Link to="/account" aria-label="My account" className="rounded-full p-2.5 hover:bg-charcoal/5">
+          {user?.role === "admin" && (
+            <Link to="/admin" className="hidden rounded-full px-3 py-2 text-sm font-medium hover:bg-charcoal/5 sm:inline-block">Admin</Link>
+          )}
+          <Link to={accountHref} aria-label={user ? "My account" : "Sign in"} className="rounded-full p-2.5 hover:bg-charcoal/5">
             <User className="h-5 w-5" />
           </Link>
           <button
@@ -97,9 +103,14 @@ export function Navbar() {
             <ButtonLink to="/booking" size="lg" fullWidth className="mt-8">
               Book Appointment
             </ButtonLink>
-            <ButtonLink to="/account" variant="outline" size="lg" fullWidth className="mt-3">
-              My Account
+            <ButtonLink to={accountHref} variant="outline" size="lg" fullWidth className="mt-3">
+              {user ? "My Account" : "Sign In"}
             </ButtonLink>
+            {user?.role === "admin" && (
+              <ButtonLink to="/admin" variant="outline" size="lg" fullWidth className="mt-3">
+                Admin Dashboard
+              </ButtonLink>
+            )}
           </nav>
         </div>
       )}

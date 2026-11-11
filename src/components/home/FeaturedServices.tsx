@@ -1,11 +1,13 @@
-import { services } from "../../data/services";
+import { useCatalog } from "../../context/CatalogContext";
 import { ButtonLink } from "../common/Button";
 import { DemoNotice } from "../common/DemoNotice";
 import { SectionHeading } from "../common/SectionHeading";
 import { ServiceCard } from "../services/ServiceCard";
 
 export function FeaturedServices() {
+  const { services, status } = useCatalog();
   const featured = services.filter((s) => s.featured);
+  if (status !== "ready" || featured.length === 0) return null;
   return (
     <section className="section bg-cream/50">
       <div className="container-page">

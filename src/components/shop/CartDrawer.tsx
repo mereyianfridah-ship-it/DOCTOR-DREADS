@@ -45,7 +45,7 @@ export function CartDrawer() {
             <EmptyState
               icon={<ShoppingBag className="h-7 w-7" />}
               title="Your cart is empty"
-              description="Browse our demonstration products and add something you like."
+              description="Browse the shop and add something you like."
               action={<Button onClick={() => go("/shop")}>Continue Shopping</Button>}
             />
           </div>

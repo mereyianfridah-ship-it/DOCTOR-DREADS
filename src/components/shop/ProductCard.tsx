@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import type { Product } from "../../types";
-import { stockStatus } from "../../data/products";
+import { stockStatus } from "../../utils/product";
 import { formatKSh } from "../../utils/format";
 import { useCart } from "../../context/CartContext";
 import { Button, ButtonLink } from "../common/Button";

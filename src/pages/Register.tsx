@@ -2,7 +2,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useState } from "react";
 import { toast } from "sonner";
+import { ApiError, errorMessage } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import { AuthCard } from "../components/common/AuthCard";
 import { Button } from "../components/common/Button";
 import { FormField } from "../components/common/FormField";
@@ -13,7 +16,7 @@ const schema = z
     fullName: z.string().trim().min(2, "Please enter your full name"),
     email: z.string().trim().email("Enter a valid email address"),
     phone: phoneSchema,
-    password: z.string().min(8, "Password must be at least 8 characters"),
+    password: z.string().min(8, "Password must be at least 8 characters").max(72, "Password is too long"),
     confirm: z.string(),
     terms: z.boolean().refine((v) => v, "You must accept the terms to continue"),
   })
@@ -22,15 +25,25 @@ type Values = z.infer<typeof schema>;
 
 export default function Register() {
   const navigate = useNavigate();
-  const { register, handleSubmit, formState: { errors } } = useForm<Values>({
+  const { register: signUp } = useAuth();
+  const [formError, setFormError] = useState<string | null>(null);
+  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: { fullName: "", email: "", phone: "", password: "", confirm: "", terms: false },
   });
 
-  // TODO(supabase): supabase.auth.signUp(...). Passwords are never stored in localStorage.
-  const onSubmit = () => {
-    toast.info("Demo mode: no account was created.");
-    navigate("/account");
+  const onSubmit = async (v: Values) => {
+    setFormError(null);
+    try {
+      await signUp({ fullName: v.fullName, email: v.email, phone: v.phone, password: v.password });
+      toast.success("Account created. Welcome!");
+      navigate("/account", { replace: true });
+    } catch (e) {
+      if (e instanceof ApiError && e.fields) {
+        for (const [k, msg] of Object.entries(e.fields)) if (k === "email" || k === "phone" || k === "fullName" || k === "password") setError(k, { message: msg });
+      }
+      setFormError(errorMessage(e));
+    }
   };
 
   return (
@@ -58,7 +71,8 @@ export default function Register() {
           </label>
           {errors.terms && <p role="alert" className="mt-1 text-sm text-red-700">{errors.terms.message}</p>}
         </div>
-        <Button type="submit" size="lg" fullWidth>Create Account</Button>
+        {formError && <p role="alert" className="text-sm text-red-700">{formError}</p>}
+        <Button type="submit" size="lg" fullWidth disabled={isSubmitting}>{isSubmitting ? "Creating account…" : "Create Account"}</Button>
       </form>
       <p className="mt-6 text-center text-sm text-charcoal/70">
         Already registered? <Link to="/login" className="font-semibold text-brown underline">Sign in</Link>

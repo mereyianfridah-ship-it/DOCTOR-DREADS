@@ -27,7 +27,7 @@ export const config = {
   jwtExpiresIn: env.JWT_EXPIRES_IN ?? "7d",
   bcryptCost: isTest ? 4 : 10,
   /** Minutes an unpaid order/booking holds stock or a slot before it expires. */
-  holdMinutes: Number(env.HOLD_MINUTES ?? 30),
+  holdMinutes: Number(env.HOLD_MINUTES ?? 10),
   upload: { maxFiles: 5, maxBytes: 5 * 1024 * 1024 },
   payments: {
     /** "mock" completes payments instantly (no money moves). "daraja" uses the real M-Pesa API. */

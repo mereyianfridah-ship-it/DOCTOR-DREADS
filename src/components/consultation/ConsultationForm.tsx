@@ -6,11 +6,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CheckCircle2, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
+import { ApiError, errorMessage } from "../../api/client";
+import { submitConsultation } from "../../api/endpoints";
+import { useAuth } from "../../context/AuthContext";
 import { Button, ButtonLink } from "../common/Button";
 import { DemoNotice } from "../common/DemoNotice";
 import { FormField } from "../common/FormField";
 import { BookingStepper } from "../booking/BookingStepper";
-import { siteConfig } from "../../config/site";
+import { useCatalog } from "../../context/CatalogContext";
 import { formatBytes, formatKSh } from "../../utils/format";
 import { phoneSchema } from "../../utils/validation";
 
@@ -65,13 +68,17 @@ export function ConsultationForm() {
   const [step, setStep] = useState(0);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoError, setPhotoError] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState<null | { reference: string; photos: number }>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const { rules } = useCatalog();
   const photosRef = useRef<Photo[]>([]);
   photosRef.current = photos;
 
-  const { register, trigger, handleSubmit, getValues, formState: { errors } } = useForm<Values>({
+  const { register, trigger, handleSubmit, getValues, setError, formState: { errors } } = useForm<Values>({
     resolver: zodResolver(schema),
-    defaultValues: { fullName: "", phone: "", email: "", condition: "", length: "", locSize: "", installType: "", info: "", marketingConsent: false },
+    defaultValues: { fullName: user?.fullName ?? "", phone: user?.phone ?? "", email: user?.email ?? "", condition: "", length: "", locSize: "", installType: "", info: "", marketingConsent: false },
   });
 
   useEffect(() => () => photosRef.current.forEach((p) => URL.revokeObjectURL(p.url)), []);
@@ -105,10 +112,37 @@ export function ConsultationForm() {
     if (ok) setStep((s) => Math.min(STEPS.length - 1, s + 1));
   };
 
-  const onSubmit = () => {
-    // TODO(backend): upload photos (Cloudinary) and POST the consultation request. Nothing is sent now.
-    setSubmitted(true);
-    toast.success("Demo consultation recorded locally. Nothing was sent.");
+  const onSubmit = async (v: Values) => {
+    // Pressing Enter on an earlier step must advance, not submit.
+    if (step < STEPS.length - 1) {
+      await next();
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError(null);
+    const form = new FormData();
+    form.set("fullName", v.fullName);
+    form.set("phone", v.phone);
+    form.set("email", v.email);
+    form.set("condition", v.condition);
+    form.set("length", v.length);
+    form.set("locSize", v.locSize);
+    form.set("installType", v.installType);
+    form.set("info", v.info);
+    form.set("marketingConsent", v.marketingConsent ? "true" : "false");
+    for (const p of photos) form.append("photos", p.file, p.file.name);
+    try {
+      const r = await submitConsultation(form);
+      setSubmitted({ reference: r.consultation.reference, photos: r.consultation.photos });
+      toast.success("Consultation submitted.");
+    } catch (e) {
+      if (e instanceof ApiError && e.fields) {
+        for (const [k, msg] of Object.entries(e.fields)) if (k in v) setError(k as keyof Values, { message: msg });
+      }
+      setSubmitError(errorMessage(e));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (submitted) {
@@ -116,9 +150,10 @@ export function ConsultationForm() {
     return (
       <div role="status" className="rounded-2xl border border-olive/30 bg-olive/10 p-8 text-center sm:p-12">
         <CheckCircle2 className="mx-auto h-14 w-14 text-olive" aria-hidden />
-        <h2 className="mt-4 text-3xl">Consultation form completed (demo)</h2>
+        <h2 className="mt-4 text-3xl">Consultation received</h2>
+        <p className="mt-3 text-charcoal/80">Reference <strong className="font-mono">{submitted.reference}</strong></p>
         <p className="mx-auto mt-3 max-w-xl text-charcoal/80">
-          Thank you, {v.fullName.split(" ")[0]}. This is a frontend demonstration, so your details and {photos.length} photo{photos.length === 1 ? "" : "s"} have <strong>not</strong> been sent anywhere. Once the backend is connected, Dr Dread Kenya will review submissions and reply with a recommendation and quote.
+          Thank you, {v.fullName.split(" ")[0]}. We received your details and {submitted.photos} photo{submitted.photos === 1 ? "" : "s"}. Dr Dread Kenya will review your request and contact you on <strong>{v.phone}</strong> with a recommendation and quote. Please keep your reference handy.
         </p>
         <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
           <ButtonLink to="/services">Browse services</ButtonLink>
@@ -129,7 +164,8 @@ export function ConsultationForm() {
   }
 
   const v = getValues();
-  const fee = siteConfig.booking.inPersonConsultationFee;
+  const fee = rules?.booking.inPersonConsultationFee ?? null;
+  const onlineFree = rules?.booking.onlineConsultationFree ?? false;
 
   return (
     <div>
@@ -208,7 +244,7 @@ export function ConsultationForm() {
               ))}
             </dl>
             <DemoNotice>
-              {siteConfig.booking.onlineConsultationFree ? "Online photo consultations are free, subject to the business's stated policy. " : ""}
+              {onlineFree ? "Online photo consultations are free, subject to the business's stated policy. " : ""}
               In-person consultation fee: {fee === null ? "to be confirmed by the business" : formatKSh(fee)}.
             </DemoNotice>
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-charcoal/15 bg-white p-4 text-sm">
@@ -218,12 +254,13 @@ export function ConsultationForm() {
           </>
         )}
 
+        {submitError && <p role="alert" className="text-sm text-red-700">{submitError}</p>}
         <div className="flex items-center justify-between gap-3 pt-4">
           <Button variant="ghost" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>Back</Button>
           {step < STEPS.length - 1 ? (
             <Button onClick={next}>Continue</Button>
           ) : (
-            <Button type="submit" size="lg">Submit Consultation</Button>
+            <Button type="submit" size="lg" disabled={submitting}>{submitting ? "Submitting…" : "Submit Consultation"}</Button>
           )}
         </div>
       </form>
