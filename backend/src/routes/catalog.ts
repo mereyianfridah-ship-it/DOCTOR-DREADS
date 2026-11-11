@@ -18,40 +18,40 @@ const product = (r: any) => ({
 /** Business rules the frontend needs (deposit %, delivery areas, stylists, slots). */
 catalogRouter.get("/config", (_req, res) => res.json(site));
 
-catalogRouter.get("/services", (req, res) => {
+catalogRouter.get("/services", async (req, res) => {
   const { category, bookingType } = req.query;
-  const rows = all("SELECT * FROM services WHERE (? IS NULL OR category=?) AND (? IS NULL OR booking_type=?) ORDER BY sort",
-    ...[category, category, bookingType, bookingType].map((v) => (typeof v === "string" ? v : null)));
+  const rows = await all("SELECT * FROM services WHERE ($1 IS NULL OR category=$2) AND ($3 IS NULL OR booking_type=$4) ORDER BY sort",
+    category, category, bookingType, bookingType);
   res.json(rows.map(service));
 });
-catalogRouter.get("/services/:slug", (req, res) => {
-  const r = get("SELECT * FROM services WHERE slug=?", req.params.slug);
+catalogRouter.get("/services/:slug", async (req, res) => {
+  const r = await get("SELECT * FROM services WHERE slug=$1", req.params.slug);
   if (!r) throw notFound("Service");
   res.json(service(r));
 });
 
-catalogRouter.get("/products", (req, res) => {
-  sweepExpired();
+catalogRouter.get("/products", async (req, res) => {
+  await sweepExpired();
   const category = typeof req.query.category === "string" ? req.query.category : null;
   const q = typeof req.query.q === "string" && req.query.q.trim() ? `%${req.query.q.trim().toLowerCase()}%` : null;
   const min = Number(req.query.minPrice), max = Number(req.query.maxPrice);
   const order = { price_asc: "price ASC", price_desc: "price DESC", name: "name ASC" }[String(req.query.sort)] ?? "sort ASC";
-  const rows = all(
-    `SELECT * FROM products WHERE (? IS NULL OR category=?) AND (? IS NULL OR lower(name||' '||short_description) LIKE ?)
-     AND price >= ? AND price <= ? ORDER BY ${order}`,
+  const rows = await all(
+    `SELECT * FROM products WHERE ($1 IS NULL OR category=$2) AND ($3 IS NULL OR lower(name||' '||short_description) LIKE $4)
+     AND price >= $5 AND price <= $6 ORDER BY ${order}`,
     category, category, q, q, Number.isFinite(min) ? min : 0, Number.isFinite(max) && req.query.maxPrice ? max : 2_000_000_000);
   res.json(rows.map(product));
 });
-catalogRouter.get("/products/:slug", (req, res) => {
-  sweepExpired();
-  const r = get("SELECT * FROM products WHERE slug=?", req.params.slug);
+catalogRouter.get("/products/:slug", async (req, res) => {
+  await sweepExpired();
+  const r = await get("SELECT * FROM products WHERE slug=$1", req.params.slug);
   if (!r) throw notFound("Product");
   res.json(product(r));
 });
 
-catalogRouter.get("/gallery", (req, res) => {
+catalogRouter.get("/gallery", async (req, res) => {
   const category = typeof req.query.category === "string" ? req.query.category : null;
-  res.json(all("SELECT * FROM gallery WHERE (? IS NULL OR category=?) ORDER BY sort", category, category)
+  res.json((await all("SELECT * FROM gallery WHERE ($1 IS NULL OR category=$2) ORDER BY sort", category, category))
     .map((g) => ({ id: g.id, title: g.title, category: g.category, image: g.image, afterImage: g.after_image ?? undefined, isVideo: !!g.is_video })));
 });
-catalogRouter.get("/testimonials", (_req, res) => res.json(all("SELECT id,name,detail,quote FROM testimonials ORDER BY sort")));
+catalogRouter.get("/testimonials", async (_req, res) => res.json(await all("SELECT id,name,detail,quote FROM testimonials ORDER BY sort")));

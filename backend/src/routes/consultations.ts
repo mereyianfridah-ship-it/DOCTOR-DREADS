@@ -55,11 +55,10 @@ consultationsRouter.post("/consultations", optionalAuth, upload.array("photos", 
     const v = schema.parse(req.body);
     for (const f of files) if (sniff(f.path) !== f.mimetype) throw new HttpError(400, `${f.originalname}: file contents do not match an allowed image type`);
     const ref = reference("CON");
-    tx(() => {
-      const r = run(`INSERT INTO consultations (reference,user_id,full_name,phone,email,hair_condition,hair_length,loc_size,install_type,info,marketing_consent,created_at)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, ref, req.user?.id ?? null, v.fullName, v.phone, v.email, v.condition, v.length, v.locSize, v.installType, v.info, v.marketingConsent ? 1 : 0, nowIso());
-      for (const f of files) run("INSERT INTO consultation_photos (consultation_id,filename,original_name,mime,size) VALUES (?,?,?,?,?)", Number(r.lastInsertRowid), f.filename, path.basename(f.originalname).slice(0, 200), f.mimetype, f.size);
-    });
+    const r = await run(`INSERT INTO consultations (reference,user_id,full_name,phone,email,hair_condition,hair_length,loc_size,install_type,info,marketing_consent,created_at)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`, ref, req.user?.id ?? null, v.fullName, v.phone, v.email, v.condition, v.length, v.locSize, v.installType, v.info, v.marketingConsent ? 1 : 0, nowIso());
+    const consultationId = Number(r.rows[0].id);
+    for (const f of files) await run("INSERT INTO consultation_photos (consultation_id,filename,original_name,mime,size) VALUES ($1,$2,$3,$4,$5)", consultationId, f.filename, path.basename(f.originalname).slice(0, 200), f.mimetype, f.size);
     res.status(201).json({ consultation: { reference: ref, status: "new", photos: files.length }, message: "Thanks! We'll review your request and contact you soon." });
   } catch (e) {
     discard();

@@ -21,7 +21,7 @@ export const config = {
   isTest,
   port: Number(env.PORT ?? 4000),
   corsOrigins: (env.CORS_ORIGINS ?? "http://localhost:5173").split(",").map((s) => s.trim()).filter(Boolean),
-  dbPath: env.DB_PATH ?? (isTest ? ":memory:" : path.join(ROOT, "data", "drdread.db")),
+  databaseUrl: env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/drdread",
   uploadDir: env.UPLOAD_DIR ?? path.join(ROOT, "uploads"),
   jwtSecret: jwtSecret(),
   jwtExpiresIn: env.JWT_EXPIRES_IN ?? "7d",

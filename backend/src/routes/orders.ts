@@ -27,11 +27,11 @@ const orderSchema = z.object({
   }
 });
 
-export const orderView = (o: any, items?: any[]) => ({
+export const orderView = async (o: any, items?: any[]) => ({
   reference: o.reference, name: o.name, phone: o.phone, email: o.email, method: o.method, area: o.area, address: o.address,
   subtotal: o.subtotal, deliveryFee: o.delivery_fee, total: o.total, paymentMethod: o.payment_method, status: o.status,
   expiresAt: o.status === "pending_payment" ? o.expires_at : null, createdAt: o.created_at,
-  items: (items ?? all("SELECT product_slug, name, unit_price, quantity FROM order_items WHERE order_id=?", o.id))
+  items: (items ?? await all("SELECT product_slug, name, unit_price, quantity FROM order_items WHERE order_id=$1", o.id))
     .map((i) => ({ productId: i.product_slug, name: i.name, unitPrice: i.unit_price, quantity: i.quantity })),
 });
 
@@ -42,13 +42,13 @@ ordersRouter.post("/orders", optionalAuth, asyncHandler(async (req, res) => {
   const wanted = new Map<string, number>();
   for (const i of o.items) wanted.set(i.productId, (wanted.get(i.productId) ?? 0) + i.quantity);
 
-  sweepExpired();
+  await sweepExpired();
   const ref = reference("ORD");
-  tx(() => {
+  await tx(async () => {
     const lines: { slug: string; name: string; price: number; qty: number }[] = [];
     const problems: Record<string, string> = {};
     for (const [slug, qty] of wanted) {
-      const p = get<any>("SELECT slug,name,price,stock FROM products WHERE slug=?", slug);
+      const p = await get<any>("SELECT slug,name,price,stock FROM products WHERE slug=$1", slug);
       if (!p) problems[slug] = "Product not found";
       else if (qty > MAX_QTY_PER_LINE) problems[slug] = `Maximum ${MAX_QTY_PER_LINE} per product`;
       else if (qty > p.stock) problems[slug] = p.stock === 0 ? "Out of stock" : `Only ${p.stock} left`;
@@ -58,33 +58,36 @@ ordersRouter.post("/orders", optionalAuth, asyncHandler(async (req, res) => {
 
     const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
     const fee = o.method === "delivery" ? site.checkout.deliveryAreas.find((a) => a.id === o.area)!.fee : 0;
-    const r = run(`INSERT INTO orders (reference,user_id,name,phone,email,method,area,address,subtotal,delivery_fee,total,payment_method,status,expires_at,created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending_payment', ?, ?)`,
+    const r = await run(`INSERT INTO orders (reference,user_id,name,phone,email,method,area,address,subtotal,delivery_fee,total,payment_method,status,expires_at,created_at)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, 'pending_payment', $13, $14) RETURNING id`,
       ref, req.user?.id ?? null, o.name, o.phone, o.email, o.method, o.method === "delivery" ? o.area! : null, o.method === "delivery" ? o.address! : null,
       subtotal, fee, subtotal + fee, o.payment, plusMinutesIso(config.holdMinutes), nowIso());
+    const orderId = Number(r.rows[0].id);
     for (const l of lines) {
-      // Guarded decrement: fails (changes=0) if another request took the stock first.
-      const u = run("UPDATE products SET stock = stock - ? WHERE slug=? AND stock >= ?", l.qty, l.slug, l.qty);
-      if (u.changes !== 1) throw new HttpError(409, "Some items are unavailable", { [l.slug]: "Out of stock" });
-      run("INSERT INTO order_items (order_id,product_slug,name,unit_price,quantity) VALUES (?,?,?,?,?)", Number(r.lastInsertRowid), l.slug, l.name, l.price, l.qty);
+      // Guarded decrement: fails (rowCount=0) if another request took the stock first.
+      const u = await run("UPDATE products SET stock = stock - $1 WHERE slug=$2 AND stock >= $3", l.qty, l.slug, l.qty);
+      if (u.rowCount !== 1) throw new HttpError(409, "Some items are unavailable", { [l.slug]: "Out of stock" });
+      await run("INSERT INTO order_items (order_id,product_slug,name,unit_price,quantity) VALUES ($1,$2,$3,$4,$5)", orderId, l.slug, l.name, l.price, l.qty);
     }
   });
-  res.status(201).json({ order: orderView(get("SELECT * FROM orders WHERE reference=?", ref)), payment: { amount: get<any>("SELECT total FROM orders WHERE reference=?", ref)!.total, payUrl: "/api/payments/mpesa/stk" } });
+  const orderRow = await get("SELECT * FROM orders WHERE reference=$1", ref);
+  const totalRow = await get<any>("SELECT total FROM orders WHERE reference=$1", ref);
+  res.status(201).json({ order: await orderView(orderRow!), payment: { amount: totalRow!.total, payUrl: "/api/payments/mpesa/stk" } });
 }));
 
-export function findOrder(ref: string, req: { user?: any }, emailQ?: unknown) {
-  const o = get<any>("SELECT * FROM orders WHERE reference=?", ref.toUpperCase());
+export async function findOrder(ref: string, req: { user?: any }, emailQ?: unknown) {
+  const o = await get<any>("SELECT * FROM orders WHERE reference=$1", ref.toUpperCase());
   const allowed = o && (req.user?.role === "admin" || (req.user && o.user_id === req.user.id) || (typeof emailQ === "string" && emailQ.toLowerCase() === String(o.email).toLowerCase()));
   if (!allowed) throw notFound("Order");
   return o;
 }
-ordersRouter.get("/orders/:reference", optionalAuth, (req, res) => {
-  sweepExpired();
-  res.json({ order: orderView(findOrder(req.params.reference, req, req.query.email)) });
+ordersRouter.get("/orders/:reference", optionalAuth, async (req, res) => {
+  await sweepExpired();
+  res.json({ order: await orderView(await findOrder(req.params.reference, req, req.query.email)) });
 });
-ordersRouter.post("/orders/:reference/cancel", optionalAuth, (req, res) => {
-  const o = findOrder(req.params.reference, req, req.body?.email);
+ordersRouter.post("/orders/:reference/cancel", optionalAuth, async (req, res) => {
+  const o = await findOrder(req.params.reference, req, req.body?.email);
   if (o.status !== "pending_payment") throw new HttpError(409, "Only unpaid orders can be cancelled online: contact the salon");
-  tx(() => { run("UPDATE orders SET status='cancelled' WHERE id=?", o.id); restoreStock(o.id); });
-  res.json({ order: orderView(get("SELECT * FROM orders WHERE id=?", o.id)) });
+  await tx(async () => { await run("UPDATE orders SET status='cancelled' WHERE id=$1", o.id); await restoreStock(o.id); });
+  res.json({ order: await orderView(await get("SELECT * FROM orders WHERE id=$1", o.id)) });
 });

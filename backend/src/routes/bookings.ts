@@ -18,22 +18,23 @@ function checkDate(date: string) {
 }
 const isOpen = (date: string) => site.booking.openDays.includes(dayOfWeek(date));
 
-function busyStylists(date: string, time: string): Set<string> {
-  return new Set(all<{ stylist_id: string }>("SELECT stylist_id FROM bookings WHERE date=? AND time=? AND status IN ('pending_deposit','confirmed')", date, time).map((r) => r.stylist_id));
+async function busyStylists(date: string, time: string): Promise<Set<string>> {
+  const rows = await all<{ stylist_id: string }>("SELECT stylist_id FROM bookings WHERE date=$1 AND time=$2 AND status IN ('pending_deposit','confirmed')", date, time);
+  return new Set(rows.map((r) => r.stylist_id));
 }
 
 /** GET /api/availability?date=YYYY-MM-DD&stylist=auto|stylist-a|... */
-bookingsRouter.get("/availability", (req, res) => {
+bookingsRouter.get("/availability", async (req, res) => {
   const q = z.object({ date: z.string(), stylist: z.string().default("auto") }).parse(req.query);
   checkDate(q.date);
   if (q.stylist !== "auto" && !realStylists.some((s) => s.id === q.stylist)) throw new HttpError(400, "Unknown stylist");
-  sweepExpired();
+  await sweepExpired();
   const open = isOpen(q.date);
-  const slots = site.booking.slots.map((time) => {
-    const busy = busyStylists(q.date, time);
+  const slots = await Promise.all(site.booking.slots.map(async (time) => {
+    const busy = await busyStylists(q.date, time);
     const free = q.stylist === "auto" ? realStylists.some((s) => !busy.has(s.id)) : !busy.has(q.stylist);
     return { time, available: open && free };
-  });
+  }));
   res.json({ date: q.date, open, slots });
 });
 
@@ -61,40 +62,40 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
   if (!isOpen(b.date)) throw new HttpError(400, "The salon is closed on that day", { date: "Closed on this day" });
   if (!site.booking.slots.includes(b.time)) throw new HttpError(400, "Invalid time slot", { time: "Invalid time slot" });
   if (b.stylist !== "auto" && !realStylists.some((s) => s.id === b.stylist)) throw new HttpError(400, "Unknown stylist", { stylist: "Unknown stylist" });
-  const svc = get<any>("SELECT * FROM services WHERE slug=?", b.serviceSlug);
+  const svc = await get<any>("SELECT * FROM services WHERE slug=$1", b.serviceSlug);
   if (!svc) throw notFound("Service");
   if (svc.booking_type !== "instant" || svc.price_from == null)
     throw new HttpError(400, "This service starts with a consultation: please use /api/consultations", { serviceSlug: "Consultation required" });
   const deposit = Math.round((svc.price_from * site.booking.depositPercent) / 100);
 
-  sweepExpired();
-  const created = tx(() => {
-    const busy = busyStylists(b.date, b.time);
+  await sweepExpired();
+  const created = await tx(async () => {
+    const busy = await busyStylists(b.date, b.time);
     const stylist = b.stylist === "auto" ? realStylists.find((s) => !busy.has(s.id))?.id : busy.has(b.stylist) ? undefined : b.stylist;
     if (!stylist) throw new HttpError(409, "That time was just taken: please choose another slot", { time: "Slot unavailable" });
     const ref = reference("BK");
-    run(`INSERT INTO bookings (reference,user_id,service_slug,location,date,time,stylist_id,full_name,phone,email,notes,deposit_amount,status,expires_at,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending_deposit', ?, ?)`,
+    const r = await run(`INSERT INTO bookings (reference,user_id,service_slug,location,date,time,stylist_id,full_name,phone,email,notes,deposit_amount,status,expires_at,created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, 'pending_deposit', $13, $14) RETURNING id`,
       ref, req.user?.id ?? null, b.serviceSlug, b.location, b.date, b.time, stylist, b.fullName, b.phone, b.email, b.notes, deposit, plusMinutesIso(config.holdMinutes), nowIso());
     return ref;
   });
-  res.status(201).json({ booking: view(get(`${SELECT} WHERE b.reference=?`, created)), payment: { amount: deposit, payUrl: "/api/payments/mpesa/stk" } });
+  res.status(201).json({ booking: view(await get(`${SELECT} WHERE b.reference=$1`, created)), payment: { amount: deposit, payUrl: "/api/payments/mpesa/stk" } });
 }));
 
 /** Guests look up with reference + email; signed-in owners (and admins) by reference alone. */
-export function findBooking(ref: string, req: { user?: any }, emailQ?: unknown) {
-  const b = get<any>(`${SELECT} WHERE b.reference=?`, ref.toUpperCase());
+export async function findBooking(ref: string, req: { user?: any }, emailQ?: unknown) {
+  const b = await get<any>(`${SELECT} WHERE b.reference=$1`, ref.toUpperCase());
   const allowed = b && (req.user?.role === "admin" || (req.user && b.user_id === req.user.id) || (typeof emailQ === "string" && emailQ.toLowerCase() === String(b.email).toLowerCase()));
   if (!allowed) throw notFound("Booking"); // identical response whether it exists or not
   return b;
 }
-bookingsRouter.get("/bookings/:reference", optionalAuth, (req, res) => {
-  sweepExpired();
-  res.json({ booking: view(findBooking(req.params.reference, req, req.query.email)) });
+bookingsRouter.get("/bookings/:reference", optionalAuth, async (req, res) => {
+  await sweepExpired();
+  res.json({ booking: view(await findBooking(req.params.reference, req, req.query.email)) });
 });
-bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, (req, res) => {
-  const b = findBooking(req.params.reference, req, req.body?.email);
+bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, async (req, res) => {
+  const b = await findBooking(req.params.reference, req, req.body?.email);
   if (!["pending_deposit", "confirmed"].includes(b.status)) throw new HttpError(409, `A ${b.status} booking cannot be cancelled`);
-  run("UPDATE bookings SET status='cancelled' WHERE id=?", b.id);
-  res.json({ booking: view(get(`${SELECT} WHERE b.id=?`, b.id)), note: b.status === "confirmed" ? "Deposit refunds are handled by the salon." : undefined });
+  await run("UPDATE bookings SET status='cancelled' WHERE id=$1", b.id);
+  res.json({ booking: view(await get(`${SELECT} WHERE b.id=$1`, b.id)), note: b.status === "confirmed" ? "Deposit refunds are handled by the salon." : undefined });
 });

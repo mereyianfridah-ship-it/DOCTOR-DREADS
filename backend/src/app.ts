@@ -24,7 +24,7 @@ export function createApp() {
   app.use(express.json({ limit: "100kb" }));
   if (!config.isTest) app.use("/api", rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests" } }));
 
-  app.get("/api/health", (_req, res) => { get("SELECT 1"); res.json({ ok: true, payments: config.payments.mode }); });
+  app.get("/api/health", async (_req, res) => { await get("SELECT 1"); res.json({ ok: true, payments: config.payments.mode }); });
   app.use("/api/auth", authRouter);
   app.use("/api", catalogRouter, bookingsRouter, ordersRouter, consultationsRouter, contactRouter, paymentsRouter, accountRouter, adminRouter);
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "Not found")));
