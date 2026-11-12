@@ -1,16 +1,35 @@
+
 {
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+
     "strict": true,
-    "noUncheckedIndexedAccess": false,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
+
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["node"]
+
+    "types": ["node"],
+
+    "sourceMap": true,
+    "declaration": false,
+    "noEmitOnError": true
   },
-  "include": ["src", "scripts", "tests"],
-  "exclude": ["scripts/generate-seed.ts"]
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "scripts/generate-seed.ts"
+  ]
 }
