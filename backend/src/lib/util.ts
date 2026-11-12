@@ -36,7 +36,9 @@ export const plusMinutesIso = (m: number) => new Date(Date.now() + m * 60_000).t
 
 /** Convert "HH:MM" to minutes since midnight. */
 export function timeToMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map((part) => Number(part));
+  const parts = hhmm.split(":").map(Number);
+  const h = parts[0] ?? 0;
+  const m = parts[1] ?? 0;
   return h * 60 + m;
 }
 
@@ -49,7 +51,9 @@ export function addMinutesToHhmm(hhmm: string, minutes: number): string {
 
 /** Parse "HH:MM" to minutes since midnight. */
 export function parseTimeToMinutes(t: string): number {
-  const [h, m] = t.split(":").map(Number);
+  const parts = t.split(":").map(Number);
+  const h = parts[0] ?? 0;
+  const m = parts[1] ?? 0;
   return h * 60 + m;
 }
 
