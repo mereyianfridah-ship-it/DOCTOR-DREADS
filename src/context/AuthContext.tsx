@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { UNAUTHORIZED_EVENT, getToken, setToken, loginUserCookie, registerUserCookie, getMeCookie, logoutUserCookie } from "../api/client";
+import { UNAUTHORIZED_EVENT, getToken, setToken, loginUserCookie, registerUserCookie, getMeCookie, logoutUserCookie, ensureSession } from "../api/client";
 import { getMe, loginUser, registerUser, updateMe } from "../api/endpoints";
 import type { AuthUser } from "../types";
 
