@@ -48,7 +48,8 @@ bookingsRouter.get("/availability", async (req, res) => {
     const slotEnd = addMinutesToHhmm(time, slotLength);
     const free = (stylistId: string) => {
       const list = byStylist.get(stylistId) ?? [];
-      return !list.some((w) => overlaps(time, slotEnd, w.start, w.end));
+      // Use overlapsWithDuration to account for booking durations
+      return !list.some((w) => overlapsWithDuration(time, slotLength, w.start, w.end - w.start));
     };
     let available: boolean;
     if (q.stylist === "auto") available = realStylists.some((s) => free(s.id));
@@ -105,7 +106,7 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
       list.push(w);
       byStylist.set(w.stylistId, list);
     }
-    const free = (stylistId: string) => !(byStylist.get(stylistId) ?? []).some((w) => overlaps(start, end, w.start, w.end));
+    const free = (stylistId: string) => !(byStylist.get(stylistId) ?? []).some((w) => overlapsWithDuration(start, durationMinutes, w.start, w.end - w.start));
 
     let stylist: string | undefined;
     for (const s of candidates) {
