@@ -1,42 +1,110 @@
-import { sign, jwtVerify } from "jsonwebtoken";
-import { config } from "./config.js";
+import type { RequestHandler } from "express";
+import { SignJWT, jwtVerify } from "jose";
+import { config } from "../config.js";
+import { get } from "../db.js";
+import { HttpError } from "./errors.js";
 
-const COOKIE_NAME = "drdread_auth";
-const COOKIE_OPTIONS: { maxAge: number; httpOnly: true; secure: boolean; sameSite: "strict" | "lax" | "none" } = {
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-  httpOnly: true,
-  secure: config.isProd,
-  sameSite: config.isProd ? "lax" : "strict",
-};
-
-/** Set an HttpOnly secure cookie with a JWT session token. */
-export function setAuthCookie(res: any, user: { id: number }) {
-  const token = sign({ sub: String(user.id) }, config.jwtSecret, {
-    expiresIn: config.jwtExpiresIn as jsonwebtoken.SignOptions["expiresIn"],
-    algorithm: "HS256",
-  });
-  res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+export interface AuthUser {
+  id: number;
+  email: string;
+  role:
+    | "customer"
+    | "admin"
+    | "stylist"
+    | "order-manager"
+    | "inventory-manager"
+    | "manager"
+    | "receptionist"
+    | "owner"
+    | "super-admin";
+  fullName: string;
 }
 
-/** Clear the auth cookie (logout). */
-export function clearAuthCookie(res: any) {
-  res.cookie(COOKIE_NAME, "", {
-    maxAge: 0,
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: AuthUser;
+  }
+}
+
+const COOKIE_NAME = "token";
+const secretKey = new TextEncoder().encode(config.jwtSecret);
+
+export async function signToken(u: { id: number }): Promise<string> {
+  return await new SignJWT({ sub: String(u.id) })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(config.jwtExpiresIn)
+    .sign(secretKey);
+}
+
+export function setAuthCookie(res: import("express").Response, token: string): void {
+  res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
+    sameSite: "lax",
     secure: config.isProd,
-    sameSite: config.isProd ? "lax" : "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 }
 
-/** Extract and verify the user from the auth cookie. */
-export async function authFromCookie(req: { cookies: any; }) {
+export function clearAuthCookie(res: import("express").Response): void {
+  res.clearCookie(COOKIE_NAME);
+}
+
+async function loadFromToken(token: string | undefined): Promise<AuthUser | null> {
+  if (!token) return null;
   try {
-    const token = req.cookies?.[COOKIE_NAME];
-    if (!token) return null;
-    const payload = jwtVerify(token, config.jwtSecret, { algorithms: ["HS256"] }) as { sub: string };
-    const user = await get<any>("SELECT id, email, role, full_name FROM users WHERE id=$1", Number(payload.sub));
-    return user ? { id: user.id, email: user.email, role: user.role, fullName: user.full_name } : null;
+    const { payload } = await jwtVerify(token, secretKey, { algorithms: ["HS256"] });
+    const id = Number(payload.sub);
+    if (!Number.isFinite(id)) return null;
+    const row = await get<any>(
+      "SELECT id, email, role, full_name FROM users WHERE id=$1",
+      id,
+    );
+    if (!row) return null;
+    return { id: row.id, email: row.email, role: row.role, fullName: row.full_name };
   } catch {
     return null;
   }
 }
+
+export async function authFromCookie(
+  req: import("express").Request,
+): Promise<AuthUser | null> {
+  const cookieToken: string | undefined = req.cookies?.[COOKIE_NAME];
+  if (cookieToken) return loadFromToken(cookieToken);
+  const header = req.headers.authorization;
+  if (header?.startsWith("Bearer ")) return loadFromToken(header.slice(7));
+  return null;
+}
+
+export const optionalAuth: RequestHandler = async (req, _res, next) => {
+  try {
+    req.user = (await authFromCookie(req)) ?? undefined;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const requireAuth: RequestHandler = async (req, _res, next) => {
+  try {
+    const user = await authFromCookie(req);
+    if (!user) return next(new HttpError(401, "Please sign in"));
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const requireAdmin: RequestHandler = async (req, _res, next) => {
+  try {
+    const user = await authFromCookie(req);
+    if (!user) return next(new HttpError(401, "Please sign in"));
+    if (user.role !== "admin") return next(new HttpError(403, "Admin access required"));
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};

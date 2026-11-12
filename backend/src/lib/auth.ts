@@ -1,33 +1,110 @@
 import type { RequestHandler } from "express";
-import jwt from "jsonwebtoken";
+import { SignJWT, jwtVerify } from "jose";
 import { config } from "../config.js";
 import { get } from "../db.js";
 import { HttpError } from "./errors.js";
 
-export interface AuthUser { id: number; email: string; role: "customer" | "admin" | "stylist" | "order-manager" | "inventory-manager" | "manager" | "receptionist" | "owner" | "super-admin"; fullName: string }
-declare module "express-serve-static-core" { interface Request { user?: AuthUser } }
+export interface AuthUser {
+  id: number;
+  email: string;
+  role:
+    | "customer"
+    | "admin"
+    | "stylist"
+    | "order-manager"
+    | "inventory-manager"
+    | "manager"
+    | "receptionist"
+    | "owner"
+    | "super-admin";
+  fullName: string;
+}
 
-export const signToken = (u: { id: number }) =>
-  jwt.sign({ sub: String(u.id) }, config.jwtSecret, { expiresIn: config.jwtExpiresIn as jwt.SignOptions["expiresIn"], algorithm: "HS256" });
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: AuthUser;
+  }
+}
 
-async function load(header: string | undefined): Promise<AuthUser | null> {
-  if (!header?.startsWith("Bearer ")) return null;
+const COOKIE_NAME = "token";
+const secretKey = new TextEncoder().encode(config.jwtSecret);
+
+export async function signToken(u: { id: number }): Promise<string> {
+  return await new SignJWT({ sub: String(u.id) })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(config.jwtExpiresIn)
+    .sign(secretKey);
+}
+
+export function setAuthCookie(res: import("express").Response, token: string): void {
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: config.isProd,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+}
+
+export function clearAuthCookie(res: import("express").Response): void {
+  res.clearCookie(COOKIE_NAME);
+}
+
+async function loadFromToken(token: string | undefined): Promise<AuthUser | null> {
+  if (!token) return null;
   try {
-    const p = jwt.verify(header.slice(7), config.jwtSecret, { algorithms: ["HS256"] }) as jwt.JwtPayload;
-    const u = await get<any>("SELECT id, email, role, full_name FROM users WHERE id=$1", Number(p.sub));
-    return u ? { id: u.id, email: u.email, role: u.role, fullName: u.full_name } : null;
+    const { payload } = await jwtVerify(token, secretKey, { algorithms: ["HS256"] });
+    const id = Number(payload.sub);
+    if (!Number.isFinite(id)) return null;
+    const row = await get<any>(
+      "SELECT id, email, role, full_name FROM users WHERE id=$1",
+      id,
+    );
+    if (!row) return null;
+    return { id: row.id, email: row.email, role: row.role, fullName: row.full_name };
   } catch {
     return null;
   }
 }
 
-/** Attaches req.user when a valid token is present; never rejects (guest checkout/booking allowed). */
-export const optionalAuth: RequestHandler = async (req, _res, next) => { req.user = await load(req.headers.authorization) ?? undefined; next(); };
+export async function authFromCookie(
+  req: import("express").Request,
+): Promise<AuthUser | null> {
+  const cookieToken: string | undefined = req.cookies?.[COOKIE_NAME];
+  if (cookieToken) return loadFromToken(cookieToken);
+  const header = req.headers.authorization;
+  if (header?.startsWith("Bearer ")) return loadFromToken(header.slice(7));
+  return null;
+}
+
+export const optionalAuth: RequestHandler = async (req, _res, next) => {
+  try {
+    req.user = (await authFromCookie(req)) ?? undefined;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
 
 export const requireAuth: RequestHandler = async (req, _res, next) => {
-  req.user = await load(req.headers.authorization) ?? undefined;
-  if (!req.user) return next(new HttpError(401, "Please sign in"));
-  next();
+  try {
+    const user = await authFromCookie(req);
+    if (!user) return next(new HttpError(401, "Please sign in"));
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
 };
-export const requireAdmin: RequestHandler = (req, res, next) =>
-  requireAuth(req, res, (err) => (err ? next(err) : req.user!.role === "admin" ? next() : next(new HttpError(403, "Admin access required"))));
+
+export const requireAdmin: RequestHandler = async (req, _res, next) => {
+  try {
+    const user = await authFromCookie(req);
+    if (!user) return next(new HttpError(401, "Please sign in"));
+    if (user.role !== "admin") return next(new HttpError(403, "Admin access required"));
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
