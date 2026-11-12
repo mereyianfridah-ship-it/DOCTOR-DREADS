@@ -14,7 +14,7 @@ export const consultationsRouter = Router();
 const EXT: Record<string, string> = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp" };
 
 const upload = multer({
-  storage: multer.memoryStorage(), // never write consultation photos to local disk
+  storage: multer.memoryStorage(),
   limits: { files: config.upload.maxFiles, fileSize: config.upload.maxBytes },
   fileFilter: (_req, file, cb) => (EXT[file.mimetype] ? cb(null, true) : cb(new HttpError(400, `${file.originalname}: only JPG, PNG or WebP images are allowed`))),
 });
@@ -31,7 +31,6 @@ const schema = z.object({
   marketingConsent: z.union([z.boolean(), z.enum(["true", "false", "on"])]).default(false).transform((v) => v === true || v === "true" || v === "on"),
 });
 
-/** multipart/form-data: text fields as in the form + up to 5 files in the "photos" field. */
 consultationsRouter.post("/consultations", optionalAuth, upload.array("photos", config.upload.maxFiles), asyncHandler(async (req, res) => {
   const files = (req.files ?? []) as Express.Multer.File[];
   try {
@@ -50,6 +49,7 @@ consultationsRouter.post("/consultations", optionalAuth, upload.array("photos", 
       await tx(async (t$) => {
         for (const [i, f] of files.entries()) {
           const u = uploaded[i];
+          if (!u) continue; // FIXED: guard against undefined
           await t$.run("INSERT INTO consultation_photos (consultation_id,filename,original_name,mime,size,cloudinary_public_id) VALUES ($1,$2,$3,$4,$5,$6)",
             consultationId, `photo-${i + 1}.${EXT[f.mimetype]}`, safeName(f.originalname), u.mime, f.size, u.publicId);
         }

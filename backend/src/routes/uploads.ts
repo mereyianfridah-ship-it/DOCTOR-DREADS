@@ -9,7 +9,6 @@ import { destroyImage, isCloudinaryConfigured, uploadImage, privateImageUrl } fr
 import { nowIso, reference } from "../lib/util.js";
 
 export const uploadsRouter = Router();
-// All upload routes are admin-only.
 uploadsRouter.use(requireAdmin);
 
 if (!isCloudinaryConfigured) {
@@ -26,13 +25,12 @@ function sniffBuffer(buf: Buffer): string | null {
 }
 
 const upload = multer({
-  storage: multer.memoryStorage(), // never write uploads to local disk
+  storage: multer.memoryStorage(),
   limits: { files: config.upload.maxFiles, fileSize: config.upload.maxBytes },
   fileFilter: (_req, file, cb) =>
     ALLOWED_MIME.includes(file.mimetype) ? cb(null, true) : cb(new HttpError(400, `${file.originalname}: only JPG, PNG or WebP images are allowed`)),
 });
 
-/** POST /api/uploads/gallery — public gallery image (multipart: file, title, category) */
 uploadsRouter.post(
   "/uploads/gallery",
   upload.single("file"),
@@ -61,7 +59,6 @@ uploadsRouter.post(
   })
 );
 
-/** POST /api/uploads/products/:slug — add an image to a product */
 uploadsRouter.post(
   "/uploads/products/:slug",
   upload.single("file"),
@@ -90,7 +87,6 @@ uploadsRouter.post(
   })
 );
 
-/** DELETE /api/uploads/products/:slug — remove one image URL from a product and delete it from Cloudinary */
 uploadsRouter.delete(
   "/uploads/products/:slug",
   asyncHandler(async (req, res) => {
@@ -112,7 +108,6 @@ uploadsRouter.delete(
   })
 );
 
-/** POST /api/uploads/consultations/:reference/photos — private consultation photos (multipart: photos[]) */
 uploadsRouter.post(
   "/uploads/consultations/:reference/photos",
   upload.array("photos", config.upload.maxFiles),
@@ -131,17 +126,25 @@ uploadsRouter.post(
     await tx(async (t$) => {
       for (const [i, f] of files.entries()) {
         const u = uploaded[i];
+        if (!u) continue; // FIXED: guard for undefined
         await t$.run(
           "INSERT INTO consultation_photos (consultation_id,filename,original_name,mime,size,cloudinary_public_id) VALUES ($1,$2,$3,$4,$5,$6)",
           consultation.id, f.originalname, f.originalname.slice(0, 200), u.mime, f.size, u.publicId
         );
       }
     });
-    res.status(201).json({ photos: uploaded.map((u, i) => ({ publicId: u.publicId, mime: files[i].mimetype, size: files[i].size })) });
+    
+    // FIXED: added .filter() to remove undefined objects
+    res.status(201).json({
+      photos: uploaded.map((u, i) => {
+        const f = files[i];
+        if (!u || !f) return null;
+        return { publicId: u.publicId, mime: f.mimetype, size: f.size };
+      }).filter((x): x is { publicId: string; mime: string; size: number } => x !== null),
+    });
   })
 );
 
-/** DELETE /api/uploads/consultations/photos/:id — delete a private consultation photo */
 uploadsRouter.delete(
   "/uploads/consultations/photos/:id",
   asyncHandler(async (req, res) => {
@@ -156,7 +159,6 @@ uploadsRouter.delete(
   })
 );
 
-/** GET /api/uploads/consultations/photos/:id/content — short-lived signed proxy for a private photo (admin only) */
 uploadsRouter.get(
   "/uploads/consultations/photos/:id/content",
   asyncHandler(async (req, res) => {

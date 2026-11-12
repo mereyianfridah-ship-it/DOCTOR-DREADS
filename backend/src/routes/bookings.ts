@@ -18,7 +18,6 @@ function checkDate(date: string) {
 }
 const isOpen = (date: string) => site.booking.openDays.includes(dayOfWeek(date));
 
-/** Active (holdable) bookings for a stylist on a date, with their time windows. */
 async function stylistWindows(date: string): Promise<{ stylistId: string; start: string; end: string }[]> {
   const rows = await all<{ stylist_id: string; time: string; duration_minutes: number }>(
     `SELECT b.stylist_id, b.time, COALESCE(b.duration_minutes, (s.duration_minutes)::integer, 60) AS duration_minutes
@@ -29,7 +28,6 @@ async function stylistWindows(date: string): Promise<{ stylistId: string; start:
   return rows.map((r) => ({ stylistId: r.stylist_id, start: r.time, end: addMinutesToHhmm(r.time, r.duration_minutes) }));
 }
 
-/** GET /api/availability?date=YYYY-MM-DD&stylist=auto|stylist-a|... */
 bookingsRouter.get("/availability", async (req, res) => {
   const q = z.object({ date: z.string(), stylist: z.string().default("auto") }).parse(req.query);
   checkDate(q.date);
@@ -43,13 +41,12 @@ bookingsRouter.get("/availability", async (req, res) => {
     list.push(w);
     byStylist.set(w.stylistId, list);
   }
-  const slotLength = 60; // site slots are one hour apart
+  const slotLength = 60;
   const slots = await Promise.all(site.booking.slots.map(async (time) => {
-    const slotEnd = addMinutesToHhmm(time, slotLength);
     const free = (stylistId: string) => {
       const list = byStylist.get(stylistId) ?? [];
-      // Use overlapsWithDuration to account for booking durations
-      return !list.some((w) => overlapsWithDuration(time, slotLength, w.start, w.end - w.start));
+      // FIXED: wrapped w.start and w.end in Number()
+      return !list.some((w) => overlapsWithDuration(time, slotLength, w.start, Number(w.end) - Number(w.start)));
     };
     let available: boolean;
     if (q.stylist === "auto") available = realStylists.some((s) => free(s.id));
@@ -77,6 +74,14 @@ const view = (b: any) => ({
 export const bookingView = view;
 const SELECT = "SELECT b.*, s.name AS service_name FROM bookings b JOIN services s ON s.slug=b.service_slug";
 
+/** FIXED: Added the missing findBooking export */
+export async function findBooking(reference: string, req: any, emailQ?: unknown) {
+  const b = await get<any>("SELECT * FROM bookings WHERE reference=$1", reference.toUpperCase());
+  const allowed = b && (req.user?.role === "admin" || (req.user && b.user_id === req.user.id) || (typeof emailQ === "string" && emailQ.toLowerCase() === String(b.email).toLowerCase()));
+  if (!allowed) throw notFound("Booking");
+  return b;
+}
+
 bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => {
   const b = bookingSchema.parse(req.body);
   checkDate(b.date);
@@ -94,8 +99,6 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
 
   await sweepExpired();
   const created = await tx(async (t$) => {
-    // Serialize concurrent booking requests for the same date + stylist. Locks are taken
-    // in a fixed, global stylist order so two transactions can never deadlock.
     const candidates = b.stylist === "auto" ? realStylists : realStylists.filter((s) => s.id === b.stylist);
     for (const s of candidates) await t$.run("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", `booking:${b.date}`, s.id);
 
@@ -106,7 +109,8 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
       list.push(w);
       byStylist.set(w.stylistId, list);
     }
-    const free = (stylistId: string) => !(byStylist.get(stylistId) ?? []).some((w) => overlapsWithDuration(start, durationMinutes, w.start, w.end - w.start));
+    // FIXED: wrapped w.start and w.end in Number()
+    const free = (stylistId: string) => !(byStylist.get(stylistId) ?? []).some((w) => overlapsWithDuration(start, durationMinutes, w.start, Number(w.end) - Number(w.start)));
 
     let stylist: string | undefined;
     for (const s of candidates) {
@@ -123,28 +127,22 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
   res.status(201).json({ booking: view(await get(`${SELECT} WHERE b.reference=$1`, created)), payment: { amount: deposit, payUrl: "/api/payments/mpesa/stk" } });
 }));
 
-/** POST /api/bookings/:reference/cancel */
 bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, asyncHandler(async (req, res) => {
   const b = await findBooking(req.params.reference, req, req.body?.email);
-  if (!b) return; // already handled by findBooking
+  if (!b) return;
 
-  // Only pending_deposit and confirmed bookings can be cancelled.
-  // Use a transaction with row lock to prevent race conditions.
   await tx(async (t$) => {
-    // Re-fetch the booking under a row lock to re-read the status atomically.
     const refreshed = await t$.get<{ id: number; status: string }>(
       "SELECT id, status FROM bookings WHERE id=$1 FOR UPDATE",
       b.id
     );
     if (!refreshed) throw new HttpError(404, "Booking not found");
-    if (refreshed.status === "cancelled") return; // already cancelled – no-op
+    if (refreshed.status === "cancelled") return;
 
-    // Re-check allowed statuses inside the transaction.
     if (!["pending_deposit", "confirmed"].includes(refreshed.status)) {
       throw new HttpError(409, `A ${refreshed.status} booking cannot be cancelled`);
     }
 
-    // Update status to cancelled.
     await t$.run("UPDATE bookings SET status='cancelled' WHERE id=$1", refreshed.id);
   });
 

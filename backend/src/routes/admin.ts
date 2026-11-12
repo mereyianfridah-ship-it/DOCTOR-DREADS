@@ -37,7 +37,6 @@ adminRouter.patch("/admin/bookings/:reference", async (req, res) => {
     if (!paid) throw new HttpError(409, "A booking can only be confirmed after a verified deposit payment", { status: "Payment not verified" });
   }
   if (st === "completed") {
-    // "completed" status can only be set if booking is confirmed AND payment succeeded
     const confirmed = await get<any>("SELECT 1 FROM bookings WHERE id=$1 AND status='confirmed'", b.id);
     if (!confirmed) throw new HttpError(409, "Booking must be confirmed before marking as completed", { status: "Booking not confirmed" });
     const paymentSucceeded = await get<any>("SELECT 1 FROM payments WHERE kind='booking' AND target_id=$1 AND status='succeeded' LIMIT 1", b.id);
@@ -48,7 +47,6 @@ adminRouter.patch("/admin/bookings/:reference", async (req, res) => {
   res.json({ ok: true });
 });
 
-// NEW: Admin cancellation request creation for bookings
 adminRouter.post("/admin/bookings/:reference/cancellation-request", asyncHandler(async (req, res) => {
   const { reason } = req.body;
   const b = await get<any>("SELECT id, status FROM bookings WHERE reference=$1", req.params.reference);
@@ -59,7 +57,6 @@ adminRouter.post("/admin/bookings/:reference/cancellation-request", asyncHandler
   res.json({ ok: true });
 }));
 
-// NEW: Admin cancellation request status for bookings
 adminRouter.get("/admin/bookings/:reference/cancellation-request", asyncHandler(async (req, res) => {
   const b = await get<any>("SELECT id FROM bookings WHERE reference=$1", req.params.reference);
   if (!b) throw notFound("Booking");
@@ -71,23 +68,18 @@ adminRouter.get("/admin/bookings/:reference/cancellation-request", asyncHandler(
 adminRouter.get("/admin/orders", asyncHandler(async (req, res) => {
   const s = status(req.query.status), { limit, offset } = page(req.query);
   const rows = await all("SELECT * FROM orders WHERE ($1::text IS NULL OR status=$2) ORDER BY id DESC LIMIT $3 OFFSET $4", s, s, limit, offset);
-  // orderView is async (it loads the order's items): resolve every order before responding.
   res.json(await Promise.all(rows.map((o) => orderView(o))));
 }));
 adminRouter.patch("/admin/orders/:reference", asyncHandler(async (req, res) => {
   const { status: st } = z.object({ status: z.enum(["processing", "shipped", "delivered", "cancelled"]) }).parse(req.body);
-  // Everything below runs in one transaction on one client: the order row is locked, its status is
-  // re-read, and the status change and stock restore commit or roll back together.
   await tx(async (t$) => {
     const o = await t$.get<any>("SELECT id, status FROM orders WHERE reference=$1 FOR UPDATE", req.params.reference);
     if (!o) throw notFound("Order");
     if (["pending_payment", "expired"].includes(o.status)) throw new HttpError(409, "Order has not been paid");
     if (st === "cancelled") {
-      // Repeated cancellation is a no-op: stock is only restored on the transition into "cancelled".
       await cancelOrderTx(t$, { id: o.id });
       return;
     }
-    // Re-opening a cancelled order would put it back in the sellable pipeline with its stock already released.
     if (o.status === "cancelled") throw new HttpError(409, "A cancelled order cannot be changed");
     await t$.run("UPDATE orders SET status=$1 WHERE id=$2", st, o.id);
   });
@@ -109,8 +101,6 @@ adminRouter.patch("/admin/consultations/:reference", async (req, res) => {
   if (r.rowCount === 0) throw notFound("Consultation");
   res.json({ ok: true });
 });
-/** Customer hair photos are private: a short-lived signed URL is returned;
-   the image itself is streamed through /api/uploads/.../content (no permanent public URL). */
 adminRouter.get("/admin/consultations/:reference/photos/:id", async (req, res) => {
   const p = await get<any>("SELECT p.id FROM consultation_photos p JOIN consultations c ON c.id=p.consultation_id WHERE c.reference=$1 AND p.id=$2", req.params.reference, Number(req.params.id));
   if (!p) throw notFound("Photo");
@@ -146,14 +136,13 @@ adminRouter.patch("/admin/services/:slug", async (req, res) => {
   res.json({ ok: true });
 });
 
-/* ---------------- TikTok management (URLs only -- videos are never downloaded or rehosted) ---------------- */
-
 function tiktokVideoId(url: string): string | null {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase().replace(/^www\./, "");
     const m = u.pathname.match(new RegExp("(?:@[^/]+/)?video/(\\d+)/"));
-    if ((host === "tiktok.com" || host.endsWith(".tiktok.com")) && m) return m[1];
+    // FIXED: Added ?? null
+    if ((host === "tiktok.com" || host.endsWith(".tiktok.com")) && m) return m[1] ?? null;
     return null;
   } catch {
     return null;
@@ -166,7 +155,6 @@ const tiktokSchema = z.object({
 });
 
 export const tiktokPublicRouter = Router();
-/** Public: published TikTok videos for responsive embedding. */
 tiktokPublicRouter.get("/tiktok/public", async (_req, res) => {
   const rows = await all<{ id: number; url: string; videoId: string; title: string; sortOrder: number; createdAt: string }>(
     "SELECT id,url,video_id AS videoId,title,sort_order AS sortOrder,created_at AS createdAt FROM tiktok_videos WHERE published=1 ORDER BY sort_order, id"
@@ -174,7 +162,6 @@ tiktokPublicRouter.get("/tiktok/public", async (_req, res) => {
   res.json(rows);
 });
 
-/** Admin: list all TikTok videos. */
 adminRouter.get("/admin/tiktok", async (_req, res) => {
   const rows = await all<{ id: number; url: string; videoId: string; title: string; published: boolean; sortOrder: number; createdAt: string; updatedAt: string }>(
     "SELECT id,url,video_id AS videoId,title,published=1 AS published,sort_order AS sortOrder,created_at AS createdAt,updated_at AS updatedAt FROM tiktok_videos ORDER BY published DESC, sort_order, id"
@@ -182,7 +169,6 @@ adminRouter.get("/admin/tiktok", async (_req, res) => {
   res.json(rows);
 });
 
-/** Admin: add a TikTok URL. */
 adminRouter.post("/admin/tiktok", asyncHandler(async (req, res) => {
   const b = tiktokSchema.parse(req.body);
   const videoId = tiktokVideoId(b.url)!;
@@ -195,7 +181,6 @@ adminRouter.post("/admin/tiktok", asyncHandler(async (req, res) => {
   res.status(201).json({ id: Number(r.rows[0].id), videoId, title: b.title, published: false });
 }));
 
-/** Admin: update a TikTok video. */
 adminRouter.patch("/admin/tiktok/:id", asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const b = z.object({
@@ -223,7 +208,6 @@ adminRouter.patch("/admin/tiktok/:id", asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-/** Admin: delete a TikTok video. */
 adminRouter.delete("/admin/tiktok/:id", asyncHandler(async (req, res) => {
   const r = await run("DELETE FROM tiktok_videos WHERE id=$1", Number(req.params.id));
   if (r.rowCount === 0) throw notFound("TikTok video");
