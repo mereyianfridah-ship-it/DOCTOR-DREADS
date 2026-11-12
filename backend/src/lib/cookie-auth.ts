@@ -40,14 +40,18 @@ export async function signToken(u: { id: number }): Promise<string> {
 export function setAuthCookie(res: import("express").Response, token: string): void {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: config.isProd,
+    sameSite: "none",     // REQUIRED for cross-origin cookies (Render -> Vercel)
+    secure: true,         // REQUIRED when sameSite is "none" (Render is HTTPS)
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 }
 
 export function clearAuthCookie(res: import("express").Response): void {
-  res.clearCookie(COOKIE_NAME);
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: "none",
+    secure: true,
+  });
 }
 
 async function loadFromToken(token: string | undefined): Promise<AuthUser | null> {
