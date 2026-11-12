@@ -13,7 +13,8 @@ import { consultationsRouter } from "./routes/consultations.js";
 import { contactRouter } from "./routes/contact.js";
 import { paymentsRouter } from "./routes/payments.js";
 import { accountRouter } from "./routes/account.js";
-import { adminRouter } from "./routes/admin.js";
+import { adminRouter, tiktokPublicRouter } from "./routes/admin.js";
+import { uploadsRouter } from "./routes/uploads.js";
 
 export function createApp() {
   const app = express();
@@ -26,7 +27,7 @@ export function createApp() {
 
   app.get("/api/health", async (_req, res) => { await get("SELECT 1"); res.json({ ok: true, payments: config.payments.mode }); });
   app.use("/api/auth", authRouter);
-  app.use("/api", catalogRouter, bookingsRouter, ordersRouter, consultationsRouter, contactRouter, paymentsRouter, accountRouter, adminRouter);
+  app.use("/api", catalogRouter, bookingsRouter, ordersRouter, consultationsRouter, contactRouter, paymentsRouter, accountRouter, adminRouter, uploadsRouter, tiktokPublicRouter);
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "Not found")));
   app.use(errorHandler);
   return app;

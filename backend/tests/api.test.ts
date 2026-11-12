@@ -2,11 +2,18 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { createApp } from "../src/app.js";
-import { get, run } from "../src/db.js";
+import { get, run, initDb, seedIfEmpty } from "../src/db.js";
 import { addDays, todayEAT } from "../src/lib/util.js";
 
 const app = createApp();
 const api = () => request(app);
+
+beforeAll(async () => {
+  await initDb();
+  // Clean slate for each test run (preserves schema, resets data).
+  await run(`TRUNCATE users, services, products, gallery, testimonials, bookings, orders, order_items, payments, consultations, consultation_photos, contact_messages, media_assets, tiktok_videos RESTART IDENTITY CASCADE`);
+  await seedIfEmpty();
+});
 
 /** next open (non-Sunday) date, `n` days+ ahead */
 function openDate(n = 3) {
@@ -97,20 +104,20 @@ describe("bookings", () => {
     run("UPDATE bookings SET expires_at='2000-01-01T00:00:00.000Z' WHERE reference=?", a.body.booking.reference);
     const av = await api().get(`/api/availability?date=${d}`);
     expect(av.body.slots.find((s: any) => s.time === "15:00").available).toBe(true);
-    expect(get<any>("SELECT status FROM bookings WHERE reference=?", a.body.booking.reference)!.status).toBe("expired");
+    expect((await get<any>("SELECT status FROM bookings WHERE reference=?", a.body.booking.reference))!.status).toBe("expired");
   });
 });
 
 describe("orders", () => {
   const slug = "loc-butter-moisturizer"; // 1200 KSh
-  const stockOf = (s: string) => get<any>("SELECT stock FROM products WHERE slug=?", s)!.stock;
+  const stockOf = async (s: string) => (await get<any>("SELECT stock FROM products WHERE slug=?", s))!.stock;
 
   it("prices from the DB, ignores client prices, reserves stock, adds delivery fee", async () => {
-    const before = stockOf(slug);
+    const before = await stockOf(slug);
     const r = await api().post("/api/orders").send({ ...guest, method: "delivery", area: "rongai", address: "Rongai town, plot 5", payment: "mpesa", items: [{ productId: slug, quantity: 2, price: 1 }], total: 1 });
     expect(r.status).toBe(201);
     expect(r.body.order).toMatchObject({ subtotal: 2400, deliveryFee: 200, total: 2600, status: "pending_payment" });
-    expect(stockOf(slug)).toBe(before - 2);
+    expect(await stockOf(slug)).toBe(before - 2);
     const ref = r.body.order.reference;
     const p = await api().post("/api/payments/mpesa/stk").send({ kind: "order", reference: ref, email: guest.email });
     expect(p.body.amount).toBe(2600);
@@ -124,7 +131,7 @@ describe("orders", () => {
     const low = "light-hydrating-lotion"; // stock 5
     const over = await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: low, quantity: 6 }] });
     expect(over.status).toBe(409);
-    expect(stockOf(low)).toBe(5);
+    expect(await stockOf(low)).toBe(5);
     expect((await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: "scalp-soothing-cream", quantity: 1 }] })).body.fields).toEqual({ "scalp-soothing-cream": "Out of stock" });
     expect((await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: "ghost", quantity: 1 }] })).status).toBe(409);
     expect((await api().post("/api/orders").send({ ...guest, method: "delivery", payment: "mpesa", items: [{ productId: low, quantity: 1 }] })).status).toBe(400);
@@ -140,15 +147,15 @@ describe("orders", () => {
   });
   it("cancel and expiry restore stock", async () => {
     const s = "strong-hold-moulding-gel";
-    const before = stockOf(s);
+    const before = await stockOf(s);
     const a = await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: s, quantity: 3 }] });
-    expect(stockOf(s)).toBe(before - 3);
+    expect(await stockOf(s)).toBe(before - 3);
     await api().post(`/api/orders/${a.body.order.reference}/cancel`).send({ email: guest.email });
-    expect(stockOf(s)).toBe(before);
+    expect(await stockOf(s)).toBe(before);
     const b = await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: s, quantity: 3 }] });
-    run("UPDATE orders SET expires_at='2000-01-01T00:00:00.000Z' WHERE reference=?", b.body.order.reference);
+    await run("UPDATE orders SET expires_at='2000-01-01T00:00:00.000Z' WHERE reference=?", b.body.order.reference);
     await api().get("/api/products");
-    expect(stockOf(s)).toBe(before);
+    expect(await stockOf(s)).toBe(before);
     expect((await api().post("/api/payments/mpesa/stk").send({ kind: "order", reference: b.body.order.reference, email: guest.email })).status).toBe(409);
   });
   it("signed-in users see their own orders/bookings in account", async () => {
@@ -182,7 +189,7 @@ describe("consultations & contact", () => {
     expect((await post([], { fullName: "A" })).status).toBe(400);
   });
   it("only admins can read photos", async () => {
-    run("INSERT OR IGNORE INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', ?, 'admin', '2026-01-01')", bcrypt.hashSync("adminpassword1", 4));
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
     const t = (await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" })).body.token;
     const list = (await api().get("/api/admin/consultations").set("Authorization", `Bearer ${t}`)).body;
     const photo = list.find((c: any) => c.photos.length).photos[0];
@@ -196,7 +203,7 @@ describe("consultations & contact", () => {
     expect((await api().post("/api/contact").send(m)).status).toBe(201);
     expect((await api().post("/api/contact").send({ ...m, message: "short" })).status).toBe(400);
     await api().post("/api/contact").send({ ...m, website: "http://spam" });
-    expect(get<any>("SELECT COUNT(*) n FROM contact_messages")!.n).toBe(1);
+    expect((await get<any>("SELECT COUNT(*) n FROM contact_messages"))!.n).toBe(1);
   });
 });
 
@@ -205,14 +212,14 @@ describe("admin", () => {
     const t = (await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" })).body.token;
     const auth = { Authorization: `Bearer ${t}` };
     const s = "wide-tooth-comb";
-    const before = get<any>("SELECT stock FROM products WHERE slug=?", s)!.stock;
+    const before = (await get<any>("SELECT stock FROM products WHERE slug=?", s)).stock;
     const o = await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: s, quantity: 2 }] });
     const ref = o.body.order.reference;
     expect((await api().patch(`/api/admin/orders/${ref}`).set(auth).send({ status: "shipped" })).status).toBe(409); // unpaid
     await api().post("/api/payments/mpesa/stk").send({ kind: "order", reference: ref, email: guest.email });
     expect((await api().patch(`/api/admin/orders/${ref}`).set(auth).send({ status: "shipped" })).status).toBe(200);
     expect((await api().patch(`/api/admin/orders/${ref}`).set(auth).send({ status: "cancelled" })).status).toBe(200);
-    expect(get<any>("SELECT stock FROM products WHERE slug=?", s)!.stock).toBe(before);
+    expect((await get<any>("SELECT stock FROM products WHERE slug=?", s)).stock).toBe(before);
     expect((await api().get("/api/admin/summary").set(auth)).body.revenue).toBeGreaterThan(0);
     expect((await api().patch(`/api/admin/products/${s}`).set(auth).send({ stock: 99, price: 777 })).status).toBe(200);
     expect((await api().get(`/api/products/${s}`)).body).toMatchObject({ stock: 99, price: 777 });

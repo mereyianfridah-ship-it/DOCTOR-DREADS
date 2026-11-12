@@ -1,13 +1,12 @@
 import { Router } from "express";
-import { createReadStream, existsSync } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { config } from "../config.js";
 import { all, get, restoreStock, run, tx } from "../db.js";
-import { HttpError, notFound } from "../lib/errors.js";
+import { HttpError, notFound, asyncHandler } from "../lib/errors.js";
 import { requireAdmin } from "../lib/auth.js";
 import { bookingView } from "./bookings.js";
 import { orderView } from "./orders.js";
+import { nowIso, reference } from "../lib/util.js";
 
 export const adminRouter = Router();
 adminRouter.use("/admin", requireAdmin);
@@ -27,12 +26,16 @@ adminRouter.get("/admin/summary", async (_req, res) => res.json({
 
 adminRouter.get("/admin/bookings", async (req, res) => {
   const s = status(req.query.status), { limit, offset } = page(req.query);
-  res.json((await all("SELECT b.*, s.name AS service_name FROM bookings b JOIN services s ON s.slug=b.service_slug WHERE ($1 IS NULL OR b.status=$2) ORDER BY b.date, b.time LIMIT $3 OFFSET $4", s, s, limit, offset)).map(bookingView));
+  res.json((await all("SELECT b.*, s.name AS service_name FROM bookings b JOIN services s ON s.slug=b.service_slug WHERE ($1::text IS NULL OR b.status=$2) ORDER BY b.date, b.time LIMIT $3 OFFSET $4", s, s, limit, offset)).map(bookingView));
 });
 adminRouter.patch("/admin/bookings/:reference", async (req, res) => {
   const { status: st } = z.object({ status: z.enum(["confirmed", "completed", "cancelled"]) }).parse(req.body);
   const b = await get<any>("SELECT id FROM bookings WHERE reference=$1", req.params.reference);
   if (!b) throw notFound("Booking");
+  if (st === "confirmed") {
+    const paid = await get<any>("SELECT 1 FROM payments WHERE kind='booking' AND target_id=$1 AND status='succeeded' LIMIT 1", b.id);
+    if (!paid) throw new HttpError(409, "A booking can only be confirmed after a verified deposit payment", { status: "Payment not verified" });
+  }
   try { await run("UPDATE bookings SET status=$1, expires_at=NULL WHERE id=$2", st, b.id); }
   catch { throw new HttpError(409, "That slot is now held by another booking"); }
   res.json({ ok: true });
@@ -40,23 +43,23 @@ adminRouter.patch("/admin/bookings/:reference", async (req, res) => {
 
 adminRouter.get("/admin/orders", async (req, res) => {
   const s = status(req.query.status), { limit, offset } = page(req.query);
-  res.json((await all("SELECT * FROM orders WHERE ($1 IS NULL OR status=$2) ORDER BY id DESC LIMIT $3 OFFSET $4", s, s, limit, offset)).map(async (o) => await orderView(o)));
+  res.json((await all("SELECT * FROM orders WHERE ($1::text IS NULL OR status=$2) ORDER BY id DESC LIMIT $3 OFFSET $4", s, s, limit, offset)).map(async (o) => await orderView(o)));
 });
 adminRouter.patch("/admin/orders/:reference", async (req, res) => {
   const { status: st } = z.object({ status: z.enum(["processing", "shipped", "delivered", "cancelled"]) }).parse(req.body);
   const o = await get<any>("SELECT * FROM orders WHERE reference=$1", req.params.reference);
   if (!o) throw notFound("Order");
   if (["pending_payment", "expired"].includes(o.status)) throw new HttpError(409, "Order has not been paid");
-  await tx(async () => {
+  await tx(async (t$) => {
     await run("UPDATE orders SET status=$1 WHERE id=$2", st, o.id);
-    if (st === "cancelled" && o.status !== "cancelled") await restoreStock(o.id);
+    if (st === "cancelled" && o.status !== "cancelled") await restoreStock(o.id, t$);
   });
   res.json({ ok: true });
 });
 
 adminRouter.get("/admin/consultations", async (req, res) => {
   const s = status(req.query.status), { limit, offset } = page(req.query);
-  const consultations = await all("SELECT * FROM consultations WHERE ($1 IS NULL OR status=$2) ORDER BY id DESC LIMIT $3 OFFSET $4", s, s, limit, offset);
+  const consultations = await all("SELECT * FROM consultations WHERE ($1::text IS NULL OR status=$2) ORDER BY id DESC LIMIT $3 OFFSET $4", s, s, limit, offset);
   res.json(await Promise.all(consultations.map(async (c) => ({
     reference: c.reference, fullName: c.full_name, phone: c.phone, email: c.email, condition: c.hair_condition, length: c.hair_length,
     locSize: c.loc_size, installType: c.install_type, info: c.info, marketingConsent: !!c.marketing_consent, status: c.status, createdAt: c.created_at,
@@ -69,15 +72,12 @@ adminRouter.patch("/admin/consultations/:reference", async (req, res) => {
   if (r.rowCount === 0) throw notFound("Consultation");
   res.json({ ok: true });
 });
-/** Customer hair photos are private: only streamed to admins, never served statically. */
+/** Customer hair photos are private: a short-lived signed URL is returned;
+   the image itself is streamed through /api/uploads/.../content (no permanent public URL). */
 adminRouter.get("/admin/consultations/:reference/photos/:id", async (req, res) => {
-  const p = await get<any>("SELECT p.* FROM consultation_photos p JOIN consultations c ON c.id=p.consultation_id WHERE c.reference=$1 AND p.id=$2", req.params.reference, Number(req.params.id));
-  const file = p && path.join(config.uploadDir, path.basename(p.filename));
-  if (!p || !existsSync(file)) throw notFound("Photo");
-  res.setHeader("Content-Type", p.mime);
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Cache-Control", "private, no-store");
-  createReadStream(file).pipe(res);
+  const p = await get<any>("SELECT p.id FROM consultation_photos p JOIN consultations c ON c.id=p.consultation_id WHERE c.reference=$1 AND p.id=$2", req.params.reference, Number(req.params.id));
+  if (!p) throw notFound("Photo");
+  res.json({ url: `/api/uploads/consultations/photos/${p.id}/content` });
 });
 
 adminRouter.get("/admin/messages", async (req, res) => {
@@ -108,3 +108,89 @@ adminRouter.patch("/admin/services/:slug", async (req, res) => {
   if (r.rowCount === 0) throw notFound("Service");
   res.json({ ok: true });
 });
+
+/* ---------------- TikTok management (URLs only -- videos are never downloaded or rehosted) ---------------- */
+
+function tiktokVideoId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    const m = u.pathname.match(new RegExp("(?:@[^/]+/)?video/(\\d+)/"));
+    if ((host === "tiktok.com" || host.endsWith(".tiktok.com")) && m) return m[1];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const tiktokSchema = z.object({
+  url: z.string().min(1).max(500, "URL too long").refine((v) => tiktokVideoId(v) != null, "Expected a TikTok video URL like https://www.tiktok.com/@user/video/123456789"),
+  title: z.string().trim().max(200).default(""),
+});
+
+export const tiktokPublicRouter = Router();
+/** Public: published TikTok videos for responsive embedding. */
+tiktokPublicRouter.get("/tiktok/public", async (_req, res) => {
+  const rows = await all<{ id: number; url: string; videoId: string; title: string; sortOrder: number; createdAt: string }>(
+    "SELECT id,url,video_id AS videoId,title,sort_order AS sortOrder,created_at AS createdAt FROM tiktok_videos WHERE published=1 ORDER BY sort_order, id"
+  );
+  res.json(rows);
+});
+
+/** Admin: list all TikTok videos. */
+adminRouter.get("/admin/tiktok", async (_req, res) => {
+  const rows = await all<{ id: number; url: string; videoId: string; title: string; published: boolean; sortOrder: number; createdAt: string; updatedAt: string }>(
+    "SELECT id,url,video_id AS videoId,title,published=1 AS published,sort_order AS sortOrder,created_at AS createdAt,updated_at AS updatedAt FROM tiktok_videos ORDER BY published DESC, sort_order, id"
+  );
+  res.json(rows);
+});
+
+/** Admin: add a TikTok URL. */
+adminRouter.post("/admin/tiktok", asyncHandler(async (req, res) => {
+  const b = tiktokSchema.parse(req.body);
+  const videoId = tiktokVideoId(b.url)!;
+  const exists = await get<any>("SELECT 1 FROM tiktok_videos WHERE video_id=$1", videoId);
+  if (exists) throw new HttpError(409, "This TikTok video is already listed", { url: "Duplicate video" });
+  const r = await run(
+    "INSERT INTO tiktok_videos (url,video_id,title,published,sort_order,created_at,updated_at) VALUES ($1,$2,$3,0,COALESCE((SELECT MAX(sort_order) FROM tiktok_videos),-1) + 1,$4,$5) RETURNING id",
+    b.url, videoId, b.title, nowIso(), nowIso()
+  );
+  res.status(201).json({ id: Number(r.rows[0].id), videoId, title: b.title, published: false });
+}));
+
+/** Admin: update a TikTok video. */
+adminRouter.patch("/admin/tiktok/:id", asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const b = z.object({
+    url: z.string().min(1).optional(),
+    title: z.string().trim().max(200).optional(),
+    published: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).optional(),
+  }).parse(req.body);
+  const row = await get<any>("SELECT * FROM tiktok_videos WHERE id=$1", id);
+  if (!row) throw notFound("TikTok video");
+  let videoId = row.video_id;
+  if (b.url) {
+    const next = tiktokVideoId(b.url);
+    if (!next) throw new HttpError(400, "Invalid TikTok URL", { url: "Expected a TikTok video URL" });
+    if (next !== row.video_id) {
+      const dup = await get<any>("SELECT 1 FROM tiktok_videos WHERE video_id=$1 AND id <> $2", next, id);
+      if (dup) throw new HttpError(409, "This TikTok video is already listed", { url: "Duplicate video" });
+    }
+    videoId = next;
+  }
+  await run(
+    "UPDATE tiktok_videos SET url=COALESCE($2,url), video_id=COALESCE($3,video_id), title=COALESCE($4,title), published=COALESCE($5::integer,published), sort_order=COALESCE($6,sort_order), updated_at=$7 WHERE id=$1",
+    id, b.url ?? null, videoId, b.title ?? null, b.published === undefined ? null : (b.published ? 1 : 0), b.sortOrder ?? null, nowIso()
+  );
+  res.json({ ok: true });
+}));
+
+/** Admin: delete a TikTok video. */
+adminRouter.delete("/admin/tiktok/:id", asyncHandler(async (req, res) => {
+  const r = await run("DELETE FROM tiktok_videos WHERE id=$1", Number(req.params.id));
+  if (r.rowCount === 0) throw notFound("TikTok video");
+  res.json({ ok: true });
+}));
+
+

@@ -1,21 +1,39 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import request from "supertest";
 
+// Set payment env vars BEFORE any backend module is imported (config reads env at import time).
 process.env.PAYMENTS_MODE = "daraja";
-Object.assign(process.env, { MPESA_CONSUMER_KEY: "k", MPESA_CONSUMER_SECRET: "s", MPESA_SHORTCODE: "174379", MPESA_PASSKEY: "p", MPESA_CALLBACK_BASE_URL: "https://api.test", MPESA_CALLBACK_SECRET: "s3cr3t-callback-path" });
+Object.assign(process.env, {
+  MPESA_CONSUMER_KEY: "k",
+  MPESA_CONSUMER_SECRET: "s",
+  MPESA_SHORTCODE: "174379",
+  MPESA_PASSKEY: "p",
+  MPESA_CALLBACK_BASE_URL: "https://api.test",
+  MPESA_CALLBACK_SECRET: "s3cr3t-callback-path",
+});
 
-let app: any, get: any;
+let app: any;
+let get: any;
 let n = 0;
 beforeAll(async () => {
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
-    if (String(url).includes("oauth")) return new Response(JSON.stringify({ access_token: "tok", expires_in: "3599" }));
-    const body = JSON.parse(init.body);
-    expect(body.CallBackURL).toBe("https://api.test/api/payments/mpesa/callback/s3cr3t-callback-path");
-    expect(body.PhoneNumber).toBe("254712345678");
-    return new Response(JSON.stringify({ ResponseCode: "0", CheckoutRequestID: `ws_CO_${++n}`, MerchantRequestID: `m${n}` }));
-  }));
-  app = (await import("../src/app.js")).createApp();
-  get = (await import("../src/db.js")).get;
+  const db = await import("../src/db.js");
+  await db.initDb();
+  await db.run(`TRUNCATE users, services, products, gallery, testimonials, bookings, orders, order_items, payments, consultations, consultation_photos, contact_messages, media_assets, tiktok_videos RESTART IDENTITY CASCADE`);
+  await db.seedIfEmpty();
+  get = db.get;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: any) => {
+      if (String(url).includes("oauth"))
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: "3599" }));
+      const body = JSON.parse(init.body);
+      expect(body.CallBackURL).toBe("https://api.test/api/payments/mpesa/callback/s3cr3t-callback-path");
+      expect(body.PhoneNumber).toBe("254712345678");
+      return new Response(JSON.stringify({ ResponseCode: "0", CheckoutRequestID: `ws_CO_${++n}`, MerchantRequestID: `m${n}` }));
+    })
+  );
+  const { createApp } = await import("../src/app.js");
+  app = createApp();
 });
 
 const cb = (id: string, code: number, amount?: number) => ({
@@ -45,7 +63,8 @@ describe("daraja flow", () => {
     expect(st.body).toMatchObject({ status: "succeeded", receipt: "QKA1B2C3D4" });
     // replayed callback is a no-op
     await request(app).post("/api/payments/mpesa/callback/s3cr3t-callback-path").send(cb(id, 0, o.total));
-    expect(get("SELECT COUNT(*) n FROM payments WHERE status='succeeded'").n).toBe(1);
+    const row = await get("SELECT COUNT(*) n FROM payments WHERE status='succeeded'");
+    expect(row!.n).toBe(1);
   });
   it("cancelled / underpaid callbacks never release the order", async () => {
     const o = await newOrder();

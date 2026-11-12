@@ -5,7 +5,7 @@ import { all, get, run, sweepExpired, tx } from "../db.js";
 import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { optionalAuth } from "../lib/auth.js";
 import { email, fullName, phone } from "../lib/schemas.js";
-import { addDays, dayOfWeek, isValidISODate, plusMinutesIso, reference, todayEAT, nowIso } from "../lib/util.js";
+import { addDays, addMinutesToHhmm, dayOfWeek, isValidISODate, overlaps, plusMinutesIso, reference, todayEAT, nowIso } from "../lib/util.js";
 import { realStylists, site } from "../site.js";
 
 export const bookingsRouter = Router();
@@ -18,9 +18,15 @@ function checkDate(date: string) {
 }
 const isOpen = (date: string) => site.booking.openDays.includes(dayOfWeek(date));
 
-async function busyStylists(date: string, time: string): Promise<Set<string>> {
-  const rows = await all<{ stylist_id: string }>("SELECT stylist_id FROM bookings WHERE date=$1 AND time=$2 AND status IN ('pending_deposit','confirmed')", date, time);
-  return new Set(rows.map((r) => r.stylist_id));
+/** Active (holdable) bookings for a stylist on a date, with their time windows. */
+async function stylistWindows(date: string): Promise<{ stylistId: string; start: string; end: string }[]> {
+  const rows = await all<{ stylist_id: string; time: string; duration_minutes: number }>(
+    `SELECT b.stylist_id, b.time, COALESCE(b.duration_minutes, (s.duration_minutes)::integer, 60) AS duration_minutes
+     FROM bookings b JOIN services s ON s.slug = b.service_slug
+     WHERE b.date=$1 AND b.status IN ('pending_deposit','confirmed')`,
+    date
+  );
+  return rows.map((r) => ({ stylistId: r.stylist_id, start: r.time, end: addMinutesToHhmm(r.time, r.duration_minutes) }));
 }
 
 /** GET /api/availability?date=YYYY-MM-DD&stylist=auto|stylist-a|... */
@@ -30,10 +36,24 @@ bookingsRouter.get("/availability", async (req, res) => {
   if (q.stylist !== "auto" && !realStylists.some((s) => s.id === q.stylist)) throw new HttpError(400, "Unknown stylist");
   await sweepExpired();
   const open = isOpen(q.date);
+  const windows = await stylistWindows(q.date);
+  const byStylist = new Map<string, { start: string; end: string }[]>();
+  for (const w of windows) {
+    const list = byStylist.get(w.stylistId) ?? [];
+    list.push(w);
+    byStylist.set(w.stylistId, list);
+  }
+  const slotLength = 60; // site slots are one hour apart
   const slots = await Promise.all(site.booking.slots.map(async (time) => {
-    const busy = await busyStylists(q.date, time);
-    const free = q.stylist === "auto" ? realStylists.some((s) => !busy.has(s.id)) : !busy.has(q.stylist);
-    return { time, available: open && free };
+    const slotEnd = addMinutesToHhmm(time, slotLength);
+    const free = (stylistId: string) => {
+      const list = byStylist.get(stylistId) ?? [];
+      return !list.some((w) => overlaps(time, slotEnd, w.start, w.end));
+    };
+    let available: boolean;
+    if (q.stylist === "auto") available = realStylists.some((s) => free(s.id));
+    else available = free(q.stylist);
+    return { time, available: open && available };
   }));
   res.json({ date: q.date, open, slots });
 });
@@ -67,16 +87,36 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
   if (svc.booking_type !== "instant" || svc.price_from == null)
     throw new HttpError(400, "This service starts with a consultation: please use /api/consultations", { serviceSlug: "Consultation required" });
   const deposit = Math.round((svc.price_from * site.booking.depositPercent) / 100);
+  const durationMinutes = Number(svc.duration_minutes ?? 60);
+  const start = b.time;
+  const end = addMinutesToHhmm(start, durationMinutes);
 
   await sweepExpired();
-  const created = await tx(async () => {
-    const busy = await busyStylists(b.date, b.time);
-    const stylist = b.stylist === "auto" ? realStylists.find((s) => !busy.has(s.id))?.id : busy.has(b.stylist) ? undefined : b.stylist;
+  const created = await tx(async (t$) => {
+    // Serialize concurrent booking requests for the same date + stylist. Locks are taken
+    // in a fixed, global stylist order so two transactions can never deadlock.
+    const candidates = b.stylist === "auto" ? realStylists : realStylists.filter((s) => s.id === b.stylist);
+    for (const s of candidates) await t$.run("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", `booking:${b.date}`, s.id);
+
+    const windows = await stylistWindows(b.date);
+    const byStylist = new Map<string, { start: string; end: string }[]>();
+    for (const w of windows) {
+      const list = byStylist.get(w.stylistId) ?? [];
+      list.push(w);
+      byStylist.set(w.stylistId, list);
+    }
+    const free = (stylistId: string) => !(byStylist.get(stylistId) ?? []).some((w) => overlaps(start, end, w.start, w.end));
+
+    let stylist: string | undefined;
+    for (const s of candidates) {
+      if (free(s.id)) { stylist = s.id; break; }
+    }
     if (!stylist) throw new HttpError(409, "That time was just taken: please choose another slot", { time: "Slot unavailable" });
+
     const ref = reference("BK");
-    const r = await run(`INSERT INTO bookings (reference,user_id,service_slug,location,date,time,stylist_id,full_name,phone,email,notes,deposit_amount,status,expires_at,created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, 'pending_deposit', $13, $14) RETURNING id`,
-      ref, req.user?.id ?? null, b.serviceSlug, b.location, b.date, b.time, stylist, b.fullName, b.phone, b.email, b.notes, deposit, plusMinutesIso(config.holdMinutes), nowIso());
+    const r = await t$.run(`INSERT INTO bookings (reference,user_id,service_slug,location,date,time,stylist_id,full_name,phone,email,notes,deposit_amount,duration_minutes,status,expires_at,created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, 'pending_deposit', $14, $15) RETURNING id`,
+      ref, req.user?.id ?? null, b.serviceSlug, b.location, b.date, b.time, stylist, b.fullName, b.phone, b.email, b.notes, deposit, durationMinutes, plusMinutesIso(config.holdMinutes), nowIso());
     return ref;
   });
   res.status(201).json({ booking: view(await get(`${SELECT} WHERE b.reference=$1`, created)), payment: { amount: deposit, payUrl: "/api/payments/mpesa/stk" } });
@@ -89,13 +129,13 @@ export async function findBooking(ref: string, req: { user?: any }, emailQ?: unk
   if (!allowed) throw notFound("Booking"); // identical response whether it exists or not
   return b;
 }
-bookingsRouter.get("/bookings/:reference", optionalAuth, async (req, res) => {
+bookingsRouter.get("/bookings/:reference", optionalAuth, asyncHandler(async (req, res) => {
   await sweepExpired();
   res.json({ booking: view(await findBooking(req.params.reference, req, req.query.email)) });
-});
-bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, async (req, res) => {
+}));
+bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, asyncHandler(async (req, res) => {
   const b = await findBooking(req.params.reference, req, req.body?.email);
   if (!["pending_deposit", "confirmed"].includes(b.status)) throw new HttpError(409, `A ${b.status} booking cannot be cancelled`);
   await run("UPDATE bookings SET status='cancelled' WHERE id=$1", b.id);
   res.json({ booking: view(await get(`${SELECT} WHERE b.id=$1`, b.id)), note: b.status === "confirmed" ? "Deposit refunds are handled by the salon." : undefined });
-});
+}));

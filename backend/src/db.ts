@@ -1,47 +1,89 @@
-import { Pool, type QueryResult } from "pg";
+import { Pool, type QueryResult, type Client as PgClient } from "pg";
 import { config } from "./config.js";
 import { nowIso } from "./lib/util.js";
+import { runMigrations } from "./lib/migrator.js";
 
-export const pool = new Pool({
+const pgPoolConfig: any = {
   connectionString: config.databaseUrl,
   ...(config.isProd ? { ssl: { rejectUnauthorized: false } } : {}),
-});
+  max: Number(process.env.DB_POOL_MAX ?? 10),
+  idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30_000),
+  connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 5_000),
+};
+export const pool = new Pool(pgPoolConfig);
 
 function toPostgresSql(sql: string): string {
   let i = 0;
   return sql.replace(/\?/g, () => `$${++i}`);
 }
 
+async function query(client: PgClient | Pool, sql: string, p: any[]): Promise<QueryResult> {
+  return client.query(toPostgresSql(sql), p);
+}
+
 export const run = async (sql: string, ...p: any[]): Promise<QueryResult> => {
-  return pool.query(toPostgresSql(sql), p);
+  return query(pool, sql, p);
 };
 
 export const get = async <T = Record<string, any>>(sql: string, ...p: any[]): Promise<T | undefined> => {
-  const result = await pool.query(toPostgresSql(sql), p);
+  const result = await query(pool, sql, p);
   return result.rows[0] as T | undefined;
 };
 
 export const all = async <T = Record<string, any>>(sql: string, ...p: any[]): Promise<T[]> => {
-  const result = await pool.query(toPostgresSql(sql), p);
+  const result = await query(pool, sql, p);
   return result.rows as T[];
 };
 
-export async function tx<T>(fn: () => Promise<T>): Promise<T> {
+/** A transaction-scoped query API. Every method executes on the same checked-out client. */
+export interface Tx {
+  run: (sql: string, ...p: any[]) => Promise<QueryResult>;
+  get: <T = Record<string, any>>(sql: string, ...p: any[]) => Promise<T | undefined>;
+  all: <T = Record<string, any>>(sql: string, ...p: any[]) => Promise<T[]>;
+}
+
+function makeTx(client: PgClient): Tx {
+  const run = (sql: string, ...p: any[]): Promise<QueryResult> => query(client, sql, p);
+  const get = async <T = Record<string, any>>(sql: string, ...p: any[]): Promise<T | undefined> => {
+    const result = await query(client, sql, p);
+    return result.rows[0] as T | undefined;
+  };
+  const all = async <T = Record<string, any>>(sql: string, ...p: any[]): Promise<T[]> => {
+    const result = await query(client, sql, p);
+    return result.rows as T[];
+  };
+  return { run, get, all };
+}
+
+/**
+ * Run `fn` inside a single PostgreSQL transaction. Every query issued through the
+ * passed `tx` object (and only those) uses the same checked-out client, so reads
+ * see the transaction's uncommitted writes and everything commits or rolls back
+ * atomically. The client is always released; on failure the transaction is rolled
+ * back before the error is re-thrown.
+ */
+export async function tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const r = await fn();
+    const result = await fn(makeTx(client));
     await client.query("COMMIT");
-    return r;
+    return result;
   } catch (e) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      /* rollback best-effort; the connection is discarded either way */
+    }
     throw e;
   } finally {
     client.release();
   }
 }
 
+/** Apply pending versioned migrations, then ensure the base schema exists. */
 export async function initDb(): Promise<void> {
+  await runMigrations();
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -149,34 +191,38 @@ CREATE TABLE IF NOT EXISTS contact_messages (
   }
 }
 
-/** Expire unpaid holds and put reserved stock back. */
+/** Expire unpaid holds and put reserved stock back, atomically. */
 export async function sweepExpired(): Promise<void> {
   const now = nowIso();
-  await tx(async () => {
-    const expiredOrders = await pool.query(
-      "SELECT id FROM orders WHERE status='pending_payment' AND expires_at < $1",
-      [now]
+  await tx(async (t$) => {
+    const expiredOrders = await t$.all<{ id: number }>(
+      "SELECT id FROM orders WHERE status='pending_payment' AND expires_at < $1 FOR UPDATE",
+      now
     );
-    for (const o of expiredOrders.rows as { id: number }[]) {
-      await pool.query("UPDATE orders SET status='expired' WHERE id=$1", [o.id]);
-      await restoreStock(o.id);
+    for (const o of expiredOrders) {
+      await t$.run("UPDATE orders SET status='expired' WHERE id=$1", o.id);
+      await restoreStock(o.id, t$);
     }
-    await pool.query(
+    await t$.run(
       "UPDATE bookings SET status='expired' WHERE status='pending_deposit' AND expires_at < $1",
-      [now]
+      now
     );
   });
 }
 
-export async function restoreStock(orderId: number): Promise<void> {
-  const items = await pool.query(
-    "SELECT product_slug, quantity FROM order_items WHERE order_id=$1",
-    [orderId]
+/**
+ * Put an order's reserved stock back. Must be called inside a transaction using
+ * that transaction's query helpers so the stock restore is part of the same atomic unit.
+ */
+export async function restoreStock(orderId: number, t$: Tx): Promise<void> {
+  const items = await t$.all<{ product_slug: string; quantity: number }>(
+    "SELECT product_slug, quantity FROM order_items WHERE order_id=$1 FOR UPDATE",
+    orderId
   );
-  for (const i of items.rows as { product_slug: string; quantity: number }[]) {
-    await pool.query(
+  for (const i of items) {
+    await t$.run(
       "UPDATE products SET stock = stock + $1 WHERE slug=$2",
-      [i.quantity, i.product_slug]
+      i.quantity, i.product_slug
     );
   }
 }
@@ -186,29 +232,30 @@ export async function seedIfEmpty(): Promise<void> {
   const { seedJson } = await import("./config.js");
   const count = await get<{ n: number }>("SELECT COUNT(*) AS n FROM services");
   if (count!.n > 0) return;
-  await tx(async () => {
+  await tx(async (t$) => {
     for (const [i, s] of seedJson<any[]>("services").entries()) {
-      await run(
-        "INSERT INTO services VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+      await t$.run(
+        "INSERT INTO services VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
         s.slug, s.name, s.category, s.shortDescription, s.description,
-        JSON.stringify(s.benefits), s.image, s.duration, s.priceFrom, s.bookingType, s.featured ? 1 : 0, i
+        JSON.stringify(s.benefits), s.image, s.duration, s.priceFrom, s.bookingType, s.featured ? 1 : 0, i,
+        s.durationMinutes ?? 60
       );
     }
     for (const [i, p] of seedJson<any[]>("products").entries()) {
-      await run(
+      await t$.run(
         "INSERT INTO products VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
         p.slug, p.name, p.category, p.shortDescription, p.description,
         p.price, p.stock, JSON.stringify(p.images), p.size, p.featured ? 1 : 0, i
       );
     }
     for (const [i, g] of seedJson<any[]>("gallery").entries()) {
-      await run(
+      await t$.run(
         "INSERT INTO gallery VALUES ($1,$2,$3,$4,$5,$6,$7)",
         g.id, g.title, g.category, g.image, g.afterImage ?? null, g.isVideo ? 1 : 0, i
       );
     }
     for (const [i, t] of seedJson<any[]>("testimonials").entries()) {
-      await run("INSERT INTO testimonials VALUES ($1,$2,$3,$4,$5)", t.id, t.name, t.detail, t.quote, i);
+      await t$.run("INSERT INTO testimonials VALUES ($1,$2,$3,$4,$5)", t.id, t.name, t.detail, t.quote, i);
     }
   });
 }

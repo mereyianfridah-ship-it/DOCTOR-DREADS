@@ -81,13 +81,13 @@ export async function findOrder(ref: string, req: { user?: any }, emailQ?: unkno
   if (!allowed) throw notFound("Order");
   return o;
 }
-ordersRouter.get("/orders/:reference", optionalAuth, async (req, res) => {
+ordersRouter.get("/orders/:reference", optionalAuth, asyncHandler(async (req, res) => {
   await sweepExpired();
   res.json({ order: await orderView(await findOrder(req.params.reference, req, req.query.email)) });
-});
+}));
 ordersRouter.post("/orders/:reference/cancel", optionalAuth, async (req, res) => {
   const o = await findOrder(req.params.reference, req, req.body?.email);
   if (o.status !== "pending_payment") throw new HttpError(409, "Only unpaid orders can be cancelled online: contact the salon");
-  await tx(async () => { await run("UPDATE orders SET status='cancelled' WHERE id=$1", o.id); await restoreStock(o.id); });
+  await tx(async (t$) => { await run("UPDATE orders SET status='cancelled' WHERE id=$1", o.id); await restoreStock(o.id, t$); });
   res.json({ order: await orderView(await get("SELECT * FROM orders WHERE id=$1", o.id)) });
 });

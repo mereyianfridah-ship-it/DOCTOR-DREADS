@@ -1,8 +1,10 @@
 import bcrypt from "bcryptjs";
 import { config } from "./config.js";
-import { get, run, initDb, seedIfEmpty, sweepExpired } from "./db.js";
+import { get, run, initDb, seedIfEmpty, sweepExpired, pool } from "./db.js";
 import { createApp } from "./app.js";
 import { nowIso } from "./lib/util.js";
+
+let server: any;
 
 async function bootstrap() {
   await initDb();
@@ -18,8 +20,23 @@ async function bootstrap() {
     }
   }
 
+  const app = createApp();
+  server = app.listen(config.port, "0.0.0.0", () =>
+    console.log(`Dr Dread API on http://0.0.0.0:${config.port} (payments: ${config.payments.mode})`)
+  );
+
   setInterval(() => sweepExpired().catch(console.error), 60_000).unref();
-  createApp().listen(config.port, () => console.log(`Dr Dread API on http://localhost:${config.port} (payments: ${config.payments.mode})`));
+
+  const shutdown = (signal: string) => {
+    console.log(`Received ${signal}: shutting down gracefully`);
+    server.close(() => {
+      pool.end().then(() => {
+        console.log("HTTP server and database pool closed");
+        process.exit(0);
+      });
+    });
+  };
+  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => shutdown(sig));
 }
 
 bootstrap().catch((err) => {

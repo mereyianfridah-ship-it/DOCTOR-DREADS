@@ -29,6 +29,8 @@ export const config = {
   /** Minutes an unpaid order/booking holds stock or a slot before it expires. */
   holdMinutes: Number(env.HOLD_MINUTES ?? 10),
   upload: { maxFiles: 5, maxBytes: 5 * 1024 * 1024 },
+  /** Cloudinary (secure backend uploads). CLOUDINARY_URL encodes cloud_name/api_key/api_secret. */
+  cloudinaryUrl: env.CLOUDINARY_URL ?? "",
   payments: {
     /** "mock" completes payments instantly (no money moves). "daraja" uses the real M-Pesa API. */
     mode: (env.PAYMENTS_MODE ?? "mock") as "mock" | "daraja",
