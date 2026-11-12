@@ -122,20 +122,30 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
   res.status(201).json({ booking: view(await get(`${SELECT} WHERE b.reference=$1`, created)), payment: { amount: deposit, payUrl: "/api/payments/mpesa/stk" } });
 }));
 
-/** Guests look up with reference + email; signed-in owners (and admins) by reference alone. */
-export async function findBooking(ref: string, req: { user?: any }, emailQ?: unknown) {
-  const b = await get<any>(`${SELECT} WHERE b.reference=$1`, ref.toUpperCase());
-  const allowed = b && (req.user?.role === "admin" || (req.user && b.user_id === req.user.id) || (typeof emailQ === "string" && emailQ.toLowerCase() === String(b.email).toLowerCase()));
-  if (!allowed) throw notFound("Booking"); // identical response whether it exists or not
-  return b;
-}
-bookingsRouter.get("/bookings/:reference", optionalAuth, asyncHandler(async (req, res) => {
-  await sweepExpired();
-  res.json({ booking: view(await findBooking(req.params.reference, req, req.query.email)) });
-}));
+/** POST /api/bookings/:reference/cancel */
 bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, asyncHandler(async (req, res) => {
   const b = await findBooking(req.params.reference, req, req.body?.email);
-  if (!["pending_deposit", "confirmed"].includes(b.status)) throw new HttpError(409, `A ${b.status} booking cannot be cancelled`);
-  await run("UPDATE bookings SET status='cancelled' WHERE id=$1", b.id);
+  if (!b) return; // already handled by findBooking
+
+  // Only pending_deposit and confirmed bookings can be cancelled.
+  // Use a transaction with row lock to prevent race conditions.
+  await tx(async (t$) => {
+    // Re-fetch the booking under a row lock to re-read the status atomically.
+    const refreshed = await t$.get<{ id: number; status: string }>(
+      "SELECT id, status FROM bookings WHERE id=$1 FOR UPDATE",
+      b.id
+    );
+    if (!refreshed) throw new HttpError(404, "Booking not found");
+    if (refreshed.status === "cancelled") return; // already cancelled – no-op
+
+    // Re-check allowed statuses inside the transaction.
+    if (!["pending_deposit", "confirmed"].includes(refreshed.status)) {
+      throw new HttpError(409, `A ${refreshed.status} booking cannot be cancelled`);
+    }
+
+    // Update status to cancelled.
+    await t$.run("UPDATE bookings SET status='cancelled' WHERE id=$1", refreshed.id);
+  });
+
   res.json({ booking: view(await get(`${SELECT} WHERE b.id=$1`, b.id)), note: b.status === "confirmed" ? "Deposit refunds are handled by the salon." : undefined });
 }));

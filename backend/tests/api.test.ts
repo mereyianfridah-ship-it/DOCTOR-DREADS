@@ -230,3 +230,176 @@ describe("admin", () => {
     expect((await api().post("/api/contact").set("Content-Type", "application/json").send("{bad")).status).toBe(400);
   });
 });
+
+/* ---------------- admin orders list + transactional order cancellation ---------------- */
+
+describe("admin orders list & order cancellation (transactional)", () => {
+  const A = "zz-cancel-a", B = "zz-cancel-b", C = "zz-cancel-c"; // C carries the failure trigger in rollback tests
+  const stockOf = async (s: string) => Number((await get<any>("SELECT stock FROM products WHERE slug=$1", s))!.stock);
+  const statusOf = async (ref: string) => (await get<any>("SELECT status FROM orders WHERE reference=$1", ref))!.status as string;
+  let auth: Record<string, string>;
+
+  const place = async (items: { productId: string; quantity: number }[]) => {
+    const r = await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items });
+    expect(r.status).toBe(201);
+    return r.body.order.reference as string;
+  };
+  const pay = async (ref: string) => {
+    await api().post("/api/payments/mpesa/stk").send({ kind: "order", reference: ref, email: guest.email });
+    expect(await statusOf(ref)).toBe("paid");
+  };
+  const adminSet = (ref: string, status: string) => api().patch(`/api/admin/orders/${ref}`).set(auth).send({ status });
+  const customerCancel = (ref: string) => api().post(`/api/orders/${ref}/cancel`).send({ email: guest.email });
+
+  const installFailingStockTrigger = async () => {
+    await run("CREATE OR REPLACE FUNCTION zz_fail_stock_restore() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'simulated stock restore failure'; END; $$ LANGUAGE plpgsql");
+    await run("DROP TRIGGER IF EXISTS zz_fail_restore ON products");
+    await run("CREATE TRIGGER zz_fail_restore BEFORE UPDATE ON products FOR EACH ROW WHEN (NEW.slug = 'zz-cancel-c') EXECUTE FUNCTION zz_fail_stock_restore()");
+  };
+  const removeFailingStockTrigger = async () => { await run("DROP TRIGGER IF EXISTS zz_fail_restore ON products"); };
+
+  beforeAll(async () => {
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    const t = (await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" })).body.token;
+    auth = { Authorization: `Bearer ${t}` };
+    await removeFailingStockTrigger();
+    await run("DELETE FROM products WHERE slug = ANY($1::text[])", [A, B, C]); // only fails if leftover orders reference them
+    for (const s of [A, B, C]) {
+      await run("INSERT INTO products (slug,name,category,short_description,description,price,stock,images,size) VALUES ($1,$2,'Test','t','t',500,10,'[]','1') ON CONFLICT (slug) DO UPDATE SET stock=10", s, `Test ${s}`);
+    }
+  });
+
+  it("GET /admin/orders resolves every order's items before responding (and keeps the response shape)", async () => {
+    const r1 = await place([{ productId: A, quantity: 1 }, { productId: B, quantity: 2 }]);
+    const r2 = await place([{ productId: B, quantity: 1 }]);
+    await pay(r2);
+
+    const res = await api().get("/api/admin/orders").set(auth);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    for (const o of res.body) {
+      // Before the fix each element was a serialised Promise, i.e. `{}`.
+      expect(Object.keys(o)).toEqual(expect.arrayContaining(["reference", "name", "phone", "email", "method", "subtotal", "deliveryFee", "total", "paymentMethod", "status", "expiresAt", "createdAt", "items"]));
+      expect(Array.isArray(o.items)).toBe(true);
+      expect(o.items.length).toBeGreaterThan(0);
+    }
+    const o1 = res.body.find((o: any) => o.reference === r1);
+    expect(o1).toMatchObject({ status: "pending_payment", subtotal: 1500, total: 1500 });
+    expect(o1.items).toHaveLength(2);
+    expect(o1.items).toEqual(expect.arrayContaining([
+      { productId: A, name: `Test ${A}`, unitPrice: 500, quantity: 1 },
+      { productId: B, name: `Test ${B}`, unitPrice: 500, quantity: 2 },
+    ]));
+    expect(res.body.find((o: any) => o.reference === r2)).toMatchObject({ status: "paid", expiresAt: null, items: [{ productId: B, quantity: 1 }] });
+
+    const paid = await api().get("/api/admin/orders?status=paid").set(auth);
+    expect(paid.body.length).toBeGreaterThan(0);
+    expect(paid.body.every((o: any) => o.status === "paid" && o.items.length > 0)).toBe(true);
+    expect((await api().get("/api/admin/orders?limit=1").set(auth)).body).toHaveLength(1);
+    expect((await api().get("/api/admin/orders")).status).toBe(401);
+  });
+
+  it("admin cancel restores stock once; repeated and concurrent cancels do not restore again", async () => {
+    const before = await stockOf(A);
+    const ref = await place([{ productId: A, quantity: 3 }]);
+    await pay(ref);
+    expect(await stockOf(A)).toBe(before - 3);
+
+    expect((await adminSet(ref, "cancelled")).body).toEqual({ ok: true });
+    expect(await statusOf(ref)).toBe("cancelled");
+    expect(await stockOf(A)).toBe(before);
+
+    for (let i = 0; i < 2; i++) expect((await adminSet(ref, "cancelled")).status).toBe(200); // repeated: harmless no-op
+    expect(await stockOf(A)).toBe(before); // not before + 3, not before + 6
+
+    const ref2 = await place([{ productId: A, quantity: 2 }]);
+    await pay(ref2);
+    const results = await Promise.all([1, 2, 3].map(() => adminSet(ref2, "cancelled")));
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(await stockOf(A)).toBe(before);
+  });
+
+  it("a cancelled order cannot be re-opened (that would allow its stock to be restored twice)", async () => {
+    const before = await stockOf(A);
+    const ref = await place([{ productId: A, quantity: 1 }]);
+    await pay(ref);
+    await adminSet(ref, "cancelled");
+    expect((await adminSet(ref, "processing")).status).toBe(409);
+    expect(await statusOf(ref)).toBe("cancelled");
+    expect(await stockOf(A)).toBe(before);
+  });
+
+  it("admin PATCH: unknown order is 404, unpaid order is 409 and keeps its reserved stock", async () => {
+    expect((await adminSet("ORD-DOES-NOT-EXIST", "cancelled")).status).toBe(404);
+    const before = await stockOf(B);
+    const ref = await place([{ productId: B, quantity: 2 }]);
+    expect((await adminSet(ref, "cancelled")).status).toBe(409);
+    expect(await statusOf(ref)).toBe("pending_payment");
+    expect(await stockOf(B)).toBe(before - 2);
+    await customerCancel(ref); // tidy up
+    expect(await stockOf(B)).toBe(before);
+  });
+
+  it("customer cancel restores stock once; repeated and concurrent cancels get 409 and restore nothing more", async () => {
+    const before = await stockOf(B);
+    const ref = await place([{ productId: B, quantity: 2 }]);
+    expect(await stockOf(B)).toBe(before - 2);
+
+    const first = await customerCancel(ref);
+    expect(first.status).toBe(200);
+    expect(first.body.order).toMatchObject({ reference: ref, status: "cancelled" });
+    expect(await stockOf(B)).toBe(before);
+
+    expect((await customerCancel(ref)).status).toBe(409);
+    expect(await stockOf(B)).toBe(before);
+
+    const ref2 = await place([{ productId: B, quantity: 3 }]);
+    const results = await Promise.all([1, 2, 3].map(() => customerCancel(ref2)));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(2);
+    expect(await stockOf(B)).toBe(before);
+  });
+
+  it("admin cancel rolls back the status change and ALL stock restores when a restore fails", async () => {
+    const ref = await place([{ productId: A, quantity: 1 }, { productId: C, quantity: 1 }]); // A restores first, then C fails
+    await pay(ref);
+    expect((await adminSet(ref, "shipped")).status).toBe(200);
+    const [a0, c0] = [await stockOf(A), await stockOf(C)];
+
+    await installFailingStockTrigger();
+    try {
+      const failed = await adminSet(ref, "cancelled");
+      expect(failed.status).toBe(500);
+      expect(failed.body).toEqual({ error: "Internal server error" });
+      expect(await statusOf(ref)).toBe("shipped"); // status change rolled back
+      expect(await stockOf(A)).toBe(a0);           // A's already-executed restore rolled back too
+      expect(await stockOf(C)).toBe(c0);
+    } finally {
+      await removeFailingStockTrigger();
+    }
+
+    expect((await adminSet(ref, "cancelled")).status).toBe(200); // a clean retry succeeds, exactly once
+    expect(await statusOf(ref)).toBe("cancelled");
+    expect(await stockOf(A)).toBe(a0 + 1);
+    expect(await stockOf(C)).toBe(c0 + 1);
+  });
+
+  it("customer cancel rolls back the status change and ALL stock restores when a restore fails", async () => {
+    const ref = await place([{ productId: A, quantity: 1 }, { productId: C, quantity: 1 }]);
+    const [a0, c0] = [await stockOf(A), await stockOf(C)];
+
+    await installFailingStockTrigger();
+    try {
+      expect((await customerCancel(ref)).status).toBe(500);
+      expect(await statusOf(ref)).toBe("pending_payment");
+      expect(await stockOf(A)).toBe(a0);
+      expect(await stockOf(C)).toBe(c0);
+    } finally {
+      await removeFailingStockTrigger();
+    }
+
+    expect((await customerCancel(ref)).status).toBe(200);
+    expect(await stockOf(A)).toBe(a0 + 1);
+    expect(await stockOf(C)).toBe(c0 + 1);
+  });
+});

@@ -33,7 +33,7 @@ export const config = {
   cloudinaryUrl: env.CLOUDINARY_URL ?? "",
   payments: {
     /** "mock" completes payments instantly (no money moves). "daraja" uses the real M-Pesa API. */
-    mode: (env.PAYMENTS_MODE ?? "mock") as "mock" | "daraja",
+    mode: (env.PAYMENTS_MODE ?? "disabled") as "mock" | "daraja" | "disabled",
     mpesa: {
       env: (env.MPESA_ENV ?? "sandbox") as "sandbox" | "production",
       consumerKey: env.MPESA_CONSUMER_KEY ?? "",
@@ -59,7 +59,7 @@ if (config.payments.mode === "daraja") {
   if (missing.length) throw new Error(`PAYMENTS_MODE=daraja requires: ${missing.join(", ")}`);
 }
 if (isProd && config.payments.mode === "mock") {
-  console.warn("[warn] PAYMENTS_MODE=mock in production: payments are NOT real.");
+  throw new Error("[error] PAYMENTS_MODE=mock is not allowed in production. Set PAYMENTS_MODE=daraja or PAYMENTS_MODE=disabled.");
 }
 
 export function seedJson<T>(name: string): T {

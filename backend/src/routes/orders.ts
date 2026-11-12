@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
-import { all, get, restoreStock, run, sweepExpired, tx } from "../db.js";
+import { all, cancelOrderTx, get, run, sweepExpired, tx } from "../db.js";
 import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { optionalAuth } from "../lib/auth.js";
 import { email, phone } from "../lib/schemas.js";
@@ -85,9 +85,15 @@ ordersRouter.get("/orders/:reference", optionalAuth, asyncHandler(async (req, re
   await sweepExpired();
   res.json({ order: await orderView(await findOrder(req.params.reference, req, req.query.email)) });
 }));
-ordersRouter.post("/orders/:reference/cancel", optionalAuth, async (req, res) => {
+ordersRouter.post("/orders/:reference/cancel", optionalAuth, asyncHandler(async (req, res) => {
   const o = await findOrder(req.params.reference, req, req.body?.email);
-  if (o.status !== "pending_payment") throw new HttpError(409, "Only unpaid orders can be cancelled online: contact the salon");
-  await tx(async (t$) => { await run("UPDATE orders SET status='cancelled' WHERE id=$1", o.id); await restoreStock(o.id, t$); });
+  const notCancellable = () => new HttpError(409, "Only unpaid orders can be cancelled online: contact the salon");
+  if (o.status !== "pending_payment") throw notCancellable();
+  // Status is re-checked under a row lock inside the transaction, so a repeated or concurrent
+  // cancel (or the expiry sweep) cannot restore the same stock twice.
+  await tx(async (t$) => {
+    const r = await cancelOrderTx(t$, { id: o.id }, { allowedFrom: ["pending_payment"] });
+    if (!r.changed) throw notCancellable();
+  });
   res.json({ order: await orderView(await get("SELECT * FROM orders WHERE id=$1", o.id)) });
-});
+}));

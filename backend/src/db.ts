@@ -227,6 +227,32 @@ export async function restoreStock(orderId: number, t$: Tx): Promise<void> {
   }
 }
 
+/**
+ * Move an order to `cancelled` and put its reserved stock back, exactly once.
+ * Must run inside `tx()`, using that transaction's helpers `t$`.
+ *
+ * The order row is locked (`FOR UPDATE`) and its status re-read inside the
+ * transaction, so two concurrent or repeated cancellations are serialised and
+ * only the call that actually performs the status transition restores stock.
+ * Returns the status the order had before this call (or null if it does not exist);
+ * `changed` is false when nothing was done (missing order, or already cancelled).
+ */
+export async function cancelOrderTx(
+  t$: Tx,
+  where: { id: number } | { reference: string },
+  opts: { allowedFrom?: string[] } = {}
+): Promise<{ changed: boolean; previousStatus: string | null }> {
+  const row = "id" in where
+    ? await t$.get<{ id: number; status: string }>("SELECT id, status FROM orders WHERE id=$1 FOR UPDATE", where.id)
+    : await t$.get<{ id: number; status: string }>("SELECT id, status FROM orders WHERE reference=$1 FOR UPDATE", where.reference);
+  if (!row) return { changed: false, previousStatus: null };
+  if (row.status === "cancelled") return { changed: false, previousStatus: row.status };
+  if (opts.allowedFrom && !opts.allowedFrom.includes(row.status)) return { changed: false, previousStatus: row.status };
+  await t$.run("UPDATE orders SET status='cancelled' WHERE id=$1", row.id);
+  await restoreStock(row.id, t$);
+  return { changed: true, previousStatus: row.status };
+}
+
 /** Seed demo data if tables are empty. */
 export async function seedIfEmpty(): Promise<void> {
   const { seedJson } = await import("./config.js");

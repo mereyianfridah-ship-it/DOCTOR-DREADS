@@ -21,6 +21,13 @@ export const updateMe = (b: { fullName?: string; phone?: string }) => api<{ user
 export const changePassword = (b: { currentPassword: string; newPassword: string }) =>
   api<{ ok: true }>("/auth/change-password", { method: "POST", body: b });
 
+// NEW: Password reset request
+export const requestPasswordReset = (email: string) =>
+  api<{ ok: true }>("/auth/password-reset-request", { method: "POST", body: { email } });
+
+// NEW: Email verification
+export const verifyEmail = (token: string) => api<{ ok: true }>("/auth/verify-email", { method: "POST", body: { token } });
+
 // ---- availability and bookings ----------------------------------------------------------------
 export interface AvailabilityResponse { date: string; open: boolean; slots: { time: string; available: boolean }[] }
 export const getAvailability = (date: string, stylist: string, signal?: AbortSignal) =>
@@ -76,10 +83,20 @@ export const adminConsultations = (p: { status?: string; limit?: number; offset?
   api<ConsultationRecord[]>(`/admin/consultations${qs(p)}`, { signal });
 export const adminSetConsultationStatus = (reference: string, status: "new" | "contacted" | "quoted" | "closed") =>
   api<{ ok: true }>(`/admin/consultations/${encodeURIComponent(reference)}`, { method: "PATCH", body: { status } });
+export const adminGenerateQuotation = (reference: string, quotationAmount: number, quotationNote?: string) =>
+  api<{ ok: true }>("/admin/consultations/" + reference + "/quotation", { method: "PATCH", body: { quotationAmount, quotationNote } });
 export const adminMessages = (p: { limit?: number; offset?: number }, signal?: AbortSignal) =>
   api<ContactMessageRecord[]>(`/admin/messages${qs(p)}`, { signal });
 export const adminSetMessageHandled = (id: number, handled: boolean) =>
   api<{ ok: true }>(`/admin/messages/${id}`, { method: "PATCH", body: { handled } });
+// NEW: Admin cancellation request creation
+export const adminCreateCancellationRequest = (reference: string, reason: string) =>
+  api<{ ok: true }>(`/admin/bookings/${encodeURIComponent(reference)}/cancellation-request`, { method: "POST", body: { reason } });
+
+// NEW: Admin cancellation request status
+export const adminGetCancellationRequest = (reference: string) =>
+  api<{ status: string; reason?: string; created_at: string }>(`/admin/bookings/${encodeURIComponent(reference)}/cancellation-request`, { signal?: AbortSignal });
+// NEW: Admin payments
 export const adminPayments = (p: { limit?: number; offset?: number }, signal?: AbortSignal) =>
   api<PaymentRecord[]>(`/admin/payments${qs(p)}`, { signal });
 export const adminUpdateProduct = (slug: string, b: { price?: number; stock?: number }) =>

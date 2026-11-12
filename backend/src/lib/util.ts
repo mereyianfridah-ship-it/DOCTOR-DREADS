@@ -47,8 +47,35 @@ export function addMinutesToHhmm(hhmm: string, minutes: number): string {
   return base.toISOString().substring(11, 16);
 }
 
-/** True when half-open intervals [aStart, aEnd) and [bStart, bEnd) overlap. */
+/** Parse "HH:MM" to minutes since midnight. */
+export function parseTimeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/** Add minutes to "HH:MM", wrap past midnight. */
+export function addMinutesWrap(t: string, minutes: number): string {
+  const base = new Date(`1970-01-01T${t}:00Z`);
+  base.setMinutes(base.getMinutes() + minutes);
+  return base.toISOString().substring(11, 16);
+}
+
+/** True when half-open intervals [aStart, aEnd) and [bStart, bEnd) overlap.
+ *  All times are "HH:MM" strings; durations are in minutes. */
 export function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+/** Interval overlap inclusive of duration.
+ *  Returns true if two bookings overlap when accounting for their durations.
+ *  aStart/aEnd and bStart/bEnd are "HH:MM" strings.
+ */
+export function overlapsWithDuration(
+  aStart: string, aDuration: number,
+  bStart: string, bDuration: number
+): boolean {
+  const aEnd = addMinutesWrap(aStart, aDuration);
+  const bEnd = addMinutesWrap(bStart, bDuration);
   return aStart < bEnd && bStart < aEnd;
 }
 

@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
 import { config } from "./config.js";
 import { get } from "./db.js";
 import { errorHandler, HttpError } from "./lib/errors.js";
@@ -21,7 +22,8 @@ export function createApp() {
   app.disable("x-powered-by");
   app.set("trust proxy", config.isProd ? 1 : false);
   app.use(helmet());
-  app.use(cors({ origin: config.corsOrigins, credentials: false }));
+  app.use(cors({ origin: config.corsOrigins, credentials: true }));
+  app.use(cookieParser());
   app.use(express.json({ limit: "100kb" }));
   if (!config.isTest) app.use("/api", rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests" } }));
 

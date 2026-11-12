@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { UNAUTHORIZED_EVENT, getToken, setToken } from "../api/client";
+import { UNAUTHORIZED_EVENT, getToken, setToken, loginUserCookie, registerUserCookie, getMeCookie, logoutUserCookie } from "../api/client";
 import { getMe, loginUser, registerUser, updateMe } from "../api/endpoints";
 import type { AuthUser } from "../types";
 
@@ -18,16 +18,30 @@ const AuthContext = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready">(() => (getToken() ? "loading" : "ready"));
+  const [status, setStatus] = useState<"loading" | "ready">(() => {
+    // On initial load, we check for a session via the me endpoint.
+    // The browser will automatically send the HttpOnly cookie with credentials: "include".
+    return "loading";
+  });
 
   // Restore the session on first load; an invalid/expired token is discarded.
   useEffect(() => {
-    if (!getToken()) return;
+    // Ensure the cookie-based session is verified.
+    void ensureSession().then(() => {
+      setStatus("ready");
+    });
     const ctl = new AbortController();
-    getMe(ctl.signal)
-      .then((r) => setUser(r.user))
+    getMeCookie(ctl.signal)
+      .then((r) => {
+        setUser(r.user);
+        setStatus("ready");
+      })
       .catch(() => {
-        if (!ctl.signal.aborted) setToken(null);
+        if (!ctl.signal.aborted) {
+          // Clear any stale state; the me endpoint returns 401 if no valid session.
+          setToken(null);
+          setUser(null);
+        }
       })
       .finally(() => {
         if (!ctl.signal.aborted) setStatus("ready");
@@ -46,26 +60,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const r = await loginUser({ email, password });
-    setToken(r.token);
-    setUser(r.user);
-    return r.user;
+    // Use the cookie-based login; the backend sets the HttpOnly cookie on response.
+    const r = await loginUserCookie({ email, password });
+    // After login, verify the session.
+    await ensureSession();
+    // Read the user from the me endpoint (cookie will be sent automatically).
+    const me = await getMeCookie();
+    setUser(me.user);
+    setStatus("ready");
+    return me.user;
   }, []);
 
   const register = useCallback(async (v: { fullName: string; email: string; phone: string; password: string }) => {
-    const r = await registerUser({ ...v, terms: true });
-    setToken(r.token);
-    setUser(r.user);
-    return r.user;
+    // Use the cookie-based register; the backend sets the HttpOnly cookie on response.
+    const r = await registerUserCookie({ ...v, terms: true });
+    await ensureSession();
+    const me = await getMeCookie();
+    setUser(me.user);
+    setStatus("ready");
+    return me.user;
   }, []);
 
   const logout = useCallback(() => {
+    void logoutUserCookie();
     setToken(null);
     setUser(null);
   }, []);
 
   const updateProfile = useCallback(async (v: { fullName?: string; phone?: string }) => {
-    const r = await updateMe(v);
+    const r = await updateMeCookie(v);
     setUser(r.user);
     return r.user;
   }, []);

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
-import { all, get, restoreStock, run, tx } from "../db.js";
+import { all, cancelOrderTx, get, run, tx } from "../db.js";
 import { HttpError, notFound, asyncHandler } from "../lib/errors.js";
 import { requireAdmin } from "../lib/auth.js";
 import { bookingView } from "./bookings.js";
@@ -41,21 +41,49 @@ adminRouter.patch("/admin/bookings/:reference", async (req, res) => {
   res.json({ ok: true });
 });
 
-adminRouter.get("/admin/orders", async (req, res) => {
+// NEW: Admin cancellation request creation for bookings
+adminRouter.post("/admin/bookings/:reference/cancellation-request", asyncHandler(async (req, res) => {
+  const { reason } = req.body;
+  const b = await get<any>("SELECT id, status FROM bookings WHERE reference=$1", req.params.reference);
+  if (!b) throw notFound("Booking");
+  if (b.status === "cancelled") throw new HttpError(409, "Booking already cancelled");
+  if (!["pending_deposit", "confirmed"].includes(b.status)) throw new HttpError(409, `Booking with status "${b.status}" cannot have cancellation request`);
+  await run("INSERT INTO booking_cancellation_requests (booking_id, reason, status, created_at) VALUES ($1, $2, 'pending', $3)", b.id, reason, nowIso());
+  res.json({ ok: true });
+}));
+
+// NEW: Admin cancellation request status for bookings
+adminRouter.get("/admin/bookings/:reference/cancellation-request", asyncHandler(async (req, res) => {
+  const r = await get<any>("SELECT * FROM booking_cancellation_requests WHERE booking_id=$1 ORDER BY created_at DESC LIMIT 1", req.params.reference);
+  if (!r) throw new HttpError(404, "Cancellation request not found");
+  res.json({ status: r.status, reason: r.reason, created_at: r.created_at });
+}));
+
+adminRouter.get("/admin/orders", asyncHandler(async (req, res) => {
   const s = status(req.query.status), { limit, offset } = page(req.query);
-  res.json((await all("SELECT * FROM orders WHERE ($1::text IS NULL OR status=$2) ORDER BY id DESC LIMIT $3 OFFSET $4", s, s, limit, offset)).map(async (o) => await orderView(o)));
-});
-adminRouter.patch("/admin/orders/:reference", async (req, res) => {
+  const rows = await all("SELECT * FROM orders WHERE ($1::text IS NULL OR status=$2) ORDER BY id DESC LIMIT $3 OFFSET $4", s, s, limit, offset);
+  // orderView is async (it loads the order's items): resolve every order before responding.
+  res.json(await Promise.all(rows.map((o) => orderView(o))));
+}));
+adminRouter.patch("/admin/orders/:reference", asyncHandler(async (req, res) => {
   const { status: st } = z.object({ status: z.enum(["processing", "shipped", "delivered", "cancelled"]) }).parse(req.body);
-  const o = await get<any>("SELECT * FROM orders WHERE reference=$1", req.params.reference);
-  if (!o) throw notFound("Order");
-  if (["pending_payment", "expired"].includes(o.status)) throw new HttpError(409, "Order has not been paid");
+  // Everything below runs in one transaction on one client: the order row is locked, its status is
+  // re-read, and the status change and stock restore commit or roll back together.
   await tx(async (t$) => {
-    await run("UPDATE orders SET status=$1 WHERE id=$2", st, o.id);
-    if (st === "cancelled" && o.status !== "cancelled") await restoreStock(o.id, t$);
+    const o = await t$.get<any>("SELECT id, status FROM orders WHERE reference=$1 FOR UPDATE", req.params.reference);
+    if (!o) throw notFound("Order");
+    if (["pending_payment", "expired"].includes(o.status)) throw new HttpError(409, "Order has not been paid");
+    if (st === "cancelled") {
+      // Repeated cancellation is a no-op: stock is only restored on the transition into "cancelled".
+      await cancelOrderTx(t$, { id: o.id });
+      return;
+    }
+    // Re-opening a cancelled order would put it back in the sellable pipeline with its stock already released.
+    if (o.status === "cancelled") throw new HttpError(409, "A cancelled order cannot be changed");
+    await t$.run("UPDATE orders SET status=$1 WHERE id=$2", st, o.id);
   });
   res.json({ ok: true });
-});
+}));
 
 adminRouter.get("/admin/consultations", async (req, res) => {
   const s = status(req.query.status), { limit, offset } = page(req.query);
@@ -192,5 +220,3 @@ adminRouter.delete("/admin/tiktok/:id", asyncHandler(async (req, res) => {
   if (r.rowCount === 0) throw notFound("TikTok video");
   res.json({ ok: true });
 }));
-
-
