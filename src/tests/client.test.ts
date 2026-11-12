@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ApiError, UNAUTHORIZED_EVENT, api, errorMessage, getToken, setToken } from "../api/client";
+import { ApiError, UNAUTHORIZED_EVENT, api, errorMessage } from "../api/client";
 import { recallGuestEmail, rememberGuestEmail } from "../utils/guestAccess";
 
 type Call = { url: string; init: RequestInit };
@@ -51,16 +51,15 @@ describe("api client", () => {
     expect(calls[1].init.body).toBe(fd);
   });
 
-  it("attaches the bearer token only when signed in", async () => {
+  it("does not set Authorization header (token managed via HttpOnly cookies)", async () => {
     mockFetch(200, {});
     await api("/x");
+    // Token is managed via HttpOnly cookies; no Bearer token set from localStorage
     expect((calls[0].init.headers as Headers).has("Authorization")).toBe(false);
-    setToken("tok123");
-    expect(getToken()).toBe("tok123");
+    // Cookies are sent automatically via credentials: "include"
     await api("/x");
-    expect((calls[1].init.headers as Headers).get("Authorization")).toBe("Bearer tok123");
-    setToken(null);
-    expect(getToken()).toBeNull();
+    // No bearer token should be set
+    expect((calls[1].init.headers as Headers).get("Authorization")).toBeUndefined();
   });
 
   it("surfaces server error messages and field errors", async () => {
@@ -77,7 +76,7 @@ describe("api client", () => {
     mockFetch(401, { error: "Please sign in" });
     await api("/auth/login", { method: "POST", body: {} }).catch(() => undefined);
     expect(events).toEqual([]); // wrong password on login must not look like an expired session
-    setToken("old");
+    // Session state is managed via HttpOnly cookies; no localStorage token to set
     await api("/auth/me").catch(() => undefined);
     expect(events).toEqual([UNAUTHORIZED_EVENT]);
   });

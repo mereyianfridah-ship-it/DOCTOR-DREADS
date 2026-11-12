@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { UNAUTHORIZED_EVENT, getToken, setToken, loginUserCookie, registerUserCookie, getMeCookie, logoutUserCookie, ensureSession } from "../api/client";
+import { UNAUTHORIZED_EVENT, loginUserCookie, registerUserCookie, getMeCookie, logoutUserCookie, ensureSession } from "../api/client";
 import { getMe, loginUser, registerUser, updateMe } from "../api/endpoints";
 import type { AuthUser } from "../types";
 
@@ -39,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         if (!ctl.signal.aborted) {
           // Clear any stale state; the me endpoint returns 401 if no valid session.
-          setToken(null);
+          // No need to clear token since we use HttpOnly cookies
           setUser(null);
         }
       })
@@ -52,7 +52,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Any 401 on an authenticated request means the session is no longer valid.
   useEffect(() => {
     const onUnauthorized = () => {
-      setToken(null);
       setUser(null);
     };
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
@@ -83,12 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     void logoutUserCookie();
-    setToken(null);
     setUser(null);
   }, []);
 
   const updateProfile = useCallback(async (v: { fullName?: string; phone?: string }) => {
-    const r = await updateMeCookie(v);
+    const r = await updateMe(v);
     setUser(r.user);
     return r.user;
   }, []);

@@ -34,25 +34,8 @@ export class ApiError extends Error {
 
 // ---- authentication token ---------------------------------------------------------------------
 
-export function getToken(): string | null {
-  try {
-    return window.localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function setToken(token: string | null): void {
-  try {
-    if (token) {
-      window.localStorage.setItem(TOKEN_KEY, token);
-    } else {
-      window.localStorage.removeItem(TOKEN_KEY);
-    }
-  } catch {
-    // Storage may be unavailable.
-  }
-}
+// Token is managed via HttpOnly cookies; localStorage access removed for XSS safety.
+// The browser automatically sends HttpOnly cookies with credentials: "include" on fetch requests.
 
 // ---- request options --------------------------------------------------------------------------
 
@@ -92,11 +75,9 @@ function buildHeaders(opts: RequestOptions): Headers {
     headers.set("Content-Type", "application/json");
   }
 
-  const token = getToken();
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
+  // Authorization header is managed via HttpOnly cookies;
+  // do not set a Bearer token from localStorage (XSS risk).
+  // The browser will automatically send HttpOnly cookies with credentials: "include".
 
   return headers;
 }
@@ -224,6 +205,7 @@ export async function api<T>(
           : undefined,
 
       signal: opts.signal,
+      credentials: "include", // send HttpOnly cookies
     });
   } catch (error) {
     networkError(error);
@@ -261,6 +243,7 @@ export async function apiBlob(
       method: "GET",
       headers,
       signal,
+      credentials: "include", // send HttpOnly cookies
     });
   } catch (error) {
     networkError(error);
@@ -299,11 +282,10 @@ export const getMeCookie = (signal?: AbortSignal) =>
   api<{ user: AuthUser }>("/auth/me", { signal });
 
 export const logoutUserCookie = () => {
-  setToken(null);
-  // The backend clears the HttpOnly cookie on logout.
-  // We just need to clear local state.
-  // Note: We don't call api here because the backend expects
-  // the cookie to be cleared on the server side.
+  // Clear the HttpOnly cookie - the backend handles this on logout.
+  // We dispatch unauthorized event to clear front-end state.
+  void dispatchUnauthorized();
+  // No need to clear token/setUser since we use HttpOnly cookies
 };
 
 // Ensure the cookie-based session is verified.
@@ -314,7 +296,7 @@ export const ensureSession = async (signal?: AbortSignal) => {
     return me.user;
   } catch (error) {
     // If we get an error, the session is invalid - clear stale state
-    setToken(null);
+    // No need to clear token since we use HttpOnly cookies
     throw error;
   }
 };

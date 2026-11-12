@@ -72,7 +72,7 @@ export interface AuthUser {
   fullName: string;
   email: string;
   phone: string;
-  role: "customer" | "admin";
+  role: "customer" | "admin" | "stylist" | "order-manager" | "owner";
 }
 
 export type BookingStatus = "pending_deposit" | "confirmed" | "completed" | "cancelled" | "expired";

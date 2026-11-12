@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   phone TEXT NOT NULL,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer','admin')),
+  role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer','admin','stylist','order-manager','owner')),
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS services (
