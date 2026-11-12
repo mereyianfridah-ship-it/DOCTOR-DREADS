@@ -5,7 +5,7 @@ import { all, get, run, sweepExpired, tx } from "../db.js";
 import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { optionalAuth } from "../lib/auth.js";
 import { email, fullName, phone } from "../lib/schemas.js";
-import { addDays, addMinutesToHhmm, dayOfWeek, isValidISODate, overlaps, plusMinutesIso, reference, todayEAT, nowIso } from "../lib/util.js";
+import { addDays, addMinutesToHhmm, dayOfWeek, isValidISODate, overlaps, overlapsWithDuration, plusMinutesIso, reference, todayEAT, nowIso } from "../lib/util.js";
 import { realStylists, site } from "../site.js";
 
 export const bookingsRouter = Router();
