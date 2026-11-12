@@ -3,6 +3,7 @@
  * Handles authentication, JSON, multipart uploads and protected files.
  * Never stores or logs passwords.
  */
+import type { AuthUser } from "../types";
 
 const RAW_BASE = (import.meta.env.VITE_API_URL ?? "").trim();
 
@@ -274,6 +275,36 @@ export async function apiBlob(
 
   return res.blob();
 }
+// ---- user cookie-based authentication -----------------------------------------------------------
+
+export const loginUserCookie = (body: { email: string; password: string }) =>
+  api<{ token: string; user: AuthUser }>("/auth/login", {
+    method: "POST",
+    body,
+  });
+
+export const registerUserCookie = (body: {
+  fullName: string;
+  email: string;
+  phone: string;
+  password: string;
+  terms: true;
+}) =>
+  api<{ token: string; user: AuthUser }>("/auth/register", {
+    method: "POST",
+    body,
+  });
+
+export const getMeCookie = (signal?: AbortSignal) =>
+  api<{ user: AuthUser }>("/auth/me", { signal });
+
+export const logoutUserCookie = () => {
+  setToken(null);
+  // The backend clears the HttpOnly cookie on logout.
+  // We just need to clear local state.
+  // Note: We don't call api here because the backend expects
+  // the cookie to be cleared on the server side.
+};
 
 // ---- user-friendly error messages -------------------------------------------------------------
 
