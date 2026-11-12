@@ -128,8 +128,11 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
 }));
 
 bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, asyncHandler(async (req, res) => {
-  const b = await findBooking(req.params.reference, req, req.body?.email);
-  if (!b) return;
+  const reference = req.params.reference;
+  if (!reference) return res.status(400).json({ error: "Missing reference" }); // Guard clause
+  
+  const b = await findBooking(reference, req, req.body?.email);
+  if (!b) return; 
 
   await tx(async (t$) => {
     const refreshed = await t$.get<{ id: number; status: string }>(
