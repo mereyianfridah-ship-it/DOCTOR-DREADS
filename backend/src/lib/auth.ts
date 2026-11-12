@@ -4,7 +4,7 @@ import { config } from "../config.js";
 import { get } from "../db.js";
 import { HttpError } from "./errors.js";
 
-export interface AuthUser { id: number; email: string; role: "customer" | "admin" | "stylist" | "order-manager"; fullName: string }
+export interface AuthUser { id: number; email: string; role: "customer" | "admin" | "stylist" | "order-manager" | "inventory-manager" | "manager" | "receptionist" | "owner" | "super-admin"; fullName: string }
 declare module "express-serve-static-core" { interface Request { user?: AuthUser } }
 
 export const signToken = (u: { id: number }) =>

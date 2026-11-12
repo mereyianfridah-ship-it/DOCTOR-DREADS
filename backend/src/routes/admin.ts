@@ -54,7 +54,9 @@ adminRouter.post("/admin/bookings/:reference/cancellation-request", asyncHandler
 
 // NEW: Admin cancellation request status for bookings
 adminRouter.get("/admin/bookings/:reference/cancellation-request", asyncHandler(async (req, res) => {
-  const r = await get<any>("SELECT * FROM booking_cancellation_requests WHERE booking_id=$1 ORDER BY created_at DESC LIMIT 1", req.params.reference);
+  const b = await get<any>("SELECT id FROM bookings WHERE reference=$1", req.params.reference);
+  if (!b) throw notFound("Booking");
+  const r = await get<any>("SELECT * FROM booking_cancellation_requests WHERE booking_id=$1 ORDER BY created_at DESC LIMIT 1", b.id);
   if (!r) throw new HttpError(404, "Cancellation request not found");
   res.json({ status: r.status, reason: r.reason, created_at: r.created_at });
 }));
