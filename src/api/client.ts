@@ -306,6 +306,19 @@ export const logoutUserCookie = () => {
   // the cookie to be cleared on the server side.
 };
 
+// Ensure the cookie-based session is verified.
+// If the session is invalid (401), clear stale state.
+export const ensureSession = async (signal?: AbortSignal) => {
+  try {
+    const me = await getMeCookie(signal);
+    return me.user;
+  } catch (error) {
+    // If we get an error, the session is invalid - clear stale state
+    setToken(null);
+    throw error;
+  }
+};
+
 // ---- user-friendly error messages -------------------------------------------------------------
 
 export function errorMessage(
