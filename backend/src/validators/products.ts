@@ -9,7 +9,7 @@ export const productCreateSchema = z.object({
   stock: z.number().int().min(0, "Stock must be a non-negative integer"),
   size: z.string().optional(),
   images: z.array(z.string()).default([]),
-  size: z.string().optional(),
+  // REMOVED duplicate size
   featured: z.boolean().default(false),
   status: z.enum(["draft", "active", "archived"]).default("draft"),
   low_stock_threshold: z.number().int().min(0).default(5),
@@ -38,7 +38,7 @@ export const productView = (r: any) => ({
   description: r.description,
   price: r.price,
   stock: r.stock,
-  images: JSON.parse(r.images),
+  images: JSON.parse(r.images ?? "[]"), // Added fallback just in case
   size: r.size,
   featured: !!r.featured,
   status: r.status,
