@@ -45,7 +45,6 @@ bookingsRouter.get("/availability", async (req, res) => {
   const slots = await Promise.all(site.booking.slots.map(async (time) => {
     const free = (stylistId: string) => {
       const list = byStylist.get(stylistId) ?? [];
-      // FIXED: wrapped w.start and w.end in Number()
       return !list.some((w) => overlapsWithDuration(time, slotLength, w.start, Number(w.end) - Number(w.start)));
     };
     let available: boolean;
@@ -74,13 +73,21 @@ const view = (b: any) => ({
 export const bookingView = view;
 const SELECT = "SELECT b.*, s.name AS service_name FROM bookings b JOIN services s ON s.slug=b.service_slug";
 
-/** FIXED: Added the missing findBooking export */
 export async function findBooking(reference: string, req: any, emailQ?: unknown) {
   const b = await get<any>("SELECT * FROM bookings WHERE reference=$1", reference.toUpperCase());
   const allowed = b && (req.user?.role === "admin" || (req.user && b.user_id === req.user.id) || (typeof emailQ === "string" && emailQ.toLowerCase() === String(b.email).toLowerCase()));
   if (!allowed) throw notFound("Booking");
   return b;
 }
+
+// ADDED: The missing GET route
+bookingsRouter.get("/bookings/:reference", optionalAuth, asyncHandler(async (req, res) => {
+  const reference = req.params.reference;
+  if (!reference) return res.status(400).json({ error: "Missing reference" });
+
+  const b = await findBooking(reference, req, req.query.email as string | undefined);
+  res.json({ booking: view(b) });
+}));
 
 bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => {
   const b = bookingSchema.parse(req.body);
@@ -109,7 +116,6 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
       list.push(w);
       byStylist.set(w.stylistId, list);
     }
-    // FIXED: wrapped w.start and w.end in Number()
     const free = (stylistId: string) => !(byStylist.get(stylistId) ?? []).some((w) => overlapsWithDuration(start, durationMinutes, w.start, Number(w.end) - Number(w.start)));
 
     let stylist: string | undefined;
@@ -129,10 +135,10 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
 
 bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, asyncHandler(async (req, res) => {
   const reference = req.params.reference;
-  if (!reference) return res.status(400).json({ error: "Missing reference" }); // Guard clause
+  if (!reference) return res.status(400).json({ error: "Missing reference" });
   
   const b = await findBooking(reference, req, req.body?.email);
-  if (!b) return; 
+  if (!b) return;
 
   await tx(async (t$) => {
     const refreshed = await t$.get<{ id: number; status: string }>(

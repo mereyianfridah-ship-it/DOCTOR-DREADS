@@ -128,11 +128,34 @@ adminRouter.get("/admin/payments", async (req, res) => {
   res.json(await all("SELECT id,kind,target_id,method,amount,phone,status,receipt,needs_review,failure_reason,created_at FROM payments ORDER BY id DESC LIMIT $1 OFFSET $2", limit, offset));
 });
 
-function tiktokVideoId(url: string): string | null {
+adminRouter.patch("/admin/products/:slug", async (req, res) => {
+  const b = z.object({ price: z.number().int().min(0).optional(), stock: z.number().int().min(0).optional() }).parse(req.body);
+  const r = await run("UPDATE products SET price=COALESCE($1,price), stock=COALESCE($2,stock) WHERE slug=$3", b.price ?? null, b.stock ?? null, req.params.slug);
+  if (r.rowCount === 0) throw notFound("Product");
+  res.json({ ok: true });
+});
+
+adminRouter.patch("/admin/services/:slug", async (req, res) => {
+  const b = z.object({ priceFrom: z.number().int().min(0).nullable() }).parse(req.body);
+  const r = await run("UPDATE services SET price_from=$1 WHERE slug=$2", b.priceFrom, req.params.slug);
+  if (r.rowCount === 0) throw notFound("Service");
+  res.json({ ok: true });
+});
+
+// FIXED: TypeScript safe TikTok ID extractor
+function tiktokVideoId(rawUrl: string): string | null {
   try {
-    const u = new URL(url);
+    // 1. Force it to a string to silence TypeScript
+    const urlStr = String(rawUrl);
+    
+    // 2. Clean the URL by removing tracking parameters (?is_from_webapp...)
+    const cleanUrl = urlStr.split("?")[0] || "";
+    
+    // 3. Parse safely
+    const u = new URL(cleanUrl);
     const host = u.hostname.toLowerCase().replace(/^www\./, "");
-    const m = u.pathname.match(new RegExp("(?:@[^/]+/)?video/(\\d+)")); 
+    const m = u.pathname.match(new RegExp("(?:@[^/]+/)?video/(\\d+)"));
+    
     if ((host === "tiktok.com" || host.endsWith(".tiktok.com")) && m) return m[1] ?? null;
     return null;
   } catch {
@@ -141,8 +164,8 @@ function tiktokVideoId(url: string): string | null {
 }
 
 const tiktokSchema = z.object({
-  url: z.string().min(1).max(500, "URL too long").refine((v) => tiktokVideoId(v) != null, "Expected a TikTok video URL like https://www.tiktok.com/@user/video/123456789"),
-  title: z.string().trim().max(200).default(""),
+  url: z.string().min(1, "URL is required").max(500, "URL too long"),
+  title: z.string().trim().max(200, "Title too long").default(""),
 });
 
 export const tiktokPublicRouter = Router();
@@ -162,15 +185,26 @@ adminRouter.get("/admin/tiktok", async (_req, res) => {
 });
 
 adminRouter.post("/admin/tiktok", asyncHandler(async (req, res) => {
-  console.log("TikTok POST body:", req.body); 
   const b = tiktokSchema.parse(req.body);
-  const videoId = tiktokVideoId(b.url)!;
+  
+  const videoId = tiktokVideoId(b.url);
+  if (!videoId) {
+    throw new HttpError(400, "Invalid TikTok URL", { 
+      url: "Make sure it contains /video/ followed by numbers." 
+    });
+  }
+
   const exists = await get<any>("SELECT 1 FROM tiktok_videos WHERE video_id=$1", videoId);
   if (exists) throw new HttpError(409, "This TikTok video is already listed", { url: "Duplicate video" });
+
+  // Clean the URL before saving so we don't store the tracking junk
+  const cleanUrl = String(b.url).split("?")[0] || "";
+
   const r = await run(
     "INSERT INTO tiktok_videos (url,video_id,title,published,sort_order,created_at,updated_at) VALUES ($1,$2,$3,0,COALESCE((SELECT MAX(sort_order) FROM tiktok_videos),-1) + 1,$4,$5) RETURNING id",
-    b.url, videoId, b.title, nowIso(), nowIso()
+    cleanUrl, videoId, b.title, nowIso(), nowIso()
   );
+  
   res.status(201).json({ id: Number(r.rows[0].id), videoId, title: b.title, published: false });
 }));
 
@@ -196,7 +230,7 @@ adminRouter.patch("/admin/tiktok/:id", asyncHandler(async (req, res) => {
   }
   await run(
     "UPDATE tiktok_videos SET url=COALESCE($2,url), video_id=COALESCE($3,video_id), title=COALESCE($4,title), published=COALESCE($5::integer,published), sort_order=COALESCE($6,sort_order), updated_at=$7 WHERE id=$1",
-    id, b.url ?? null, videoId, b.title ?? null, b.published === undefined ? null : (b.published ? 1 : 0), b.sortOrder ?? null, nowIso()
+    id, b.url ? (String(b.url).split("?")[0] || null) : null, videoId, b.title ?? null, b.published === undefined ? null : (b.published ? 1 : 0), b.sortOrder ?? null, nowIso()
   );
   res.json({ ok: true });
 }));
@@ -234,232 +268,4 @@ adminRouter.get("/admin/customers", asyncHandler(async (req, res) => {
     orders: Number(r.orders),
     spent: Number(r.spent),
   })));
-})); // <--- FIXED: Missing closing bracket added here
-
-// ---- Categories ------------------------------------------------------------------
-adminRouter.get("/admin/categories", asyncHandler(async (_req, res) => {
-  const rows = await all<any>(`SELECT id, name, slug, description, image, display_order, active, created_at, updated_at FROM categories ORDER BY display_order, name`);
-  res.json(rows.map((r) => ({
-    id: Number(r.id),
-    name: r.name,
-    slug: r.slug,
-    description: r.description,
-    image: r.image,
-    displayOrder: Number(r.display_order),
-    active: r.active === true,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  })));
 }));
-
-adminRouter.post("/admin/categories", asyncHandler(async (req, res) => {
-  const body = z.object({
-    name: z.string().min(1),
-    slug: z.string().min(1).regex(/^[a-z0-9]+$/),
-    description: z.string().optional(),
-    image: z.string().optional(),
-    display_order: z.number().int().min(0).default(0),
-    active: z.boolean().default(true),
-  }).parse(req.body);
-
-  const exists = await get<any>("SELECT 1 FROM categories WHERE slug=$1", body.slug);
-  if (exists) throw new HttpError(409, "Category slug already exists", { slug: body.slug });
-
-  const r = await run(
-    `INSERT INTO categories (name, slug, description, image, display_order, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, name, slug, description, image, display_order, active, created_at, updated_at`,
-    body.name, body.slug, body.description ?? null, body.image ?? null, body.display_order, body.active === true ? 1 : 0, nowIso(), nowIso()
-  );
-  res.status(201).json({ id: Number(r.rows[0].id), ...r.rows[0] });
-}));
-
-adminRouter.patch("/admin/categories/:id", asyncHandler(async (req, res) => {
-  const id = Number(req.params.id);
-  const body = z.object({
-    name: z.string().min(1).optional(),
-    slug: z.string().min(1).regex(/^[a-z0-9]+$/).optional(),
-    description: z.string().optional(),
-    image: z.string().optional(),
-    display_order: z.number().int().min(0).optional(),
-    active: z.boolean().optional(),
-  }).parse(req.body);
-
-  const row = await get<any>("SELECT * FROM categories WHERE id=$1", id);
-  if (!row) throw notFound("Category");
-
-  if (body.slug && body.slug !== row.slug) {
-    const exists = await get<any>("SELECT 1 FROM categories WHERE slug=$1 AND id <> $2", body.slug, id);
-    if (exists) throw new HttpError(409, "Category slug already exists", { slug: body.slug });
-  }
-
-  await run(
-    `UPDATE categories SET name=COALESCE($2,name), slug=COALESCE($3,slug), description=COALESCE($4,description), image=COALESCE($5,image), display_order=COALESCE($6,display_order), active=COALESCE($7::integer,active), updated_at=$8 WHERE id=$1`,
-    id, body.name ?? null, body.slug ?? null, body.description ?? null, body.image ?? null, body.display_order ?? null, body.active !== undefined ? (body.active ? 1 : 0) : null, nowIso()
-  );
-  res.json({ ok: true });
-}));
-
-adminRouter.delete("/admin/categories/:id", asyncHandler(async (req, res) => {
-  const id = Number(req.params.id);
-  const row = await get<any>("SELECT * FROM categories WHERE id=$1", id);
-  if (!row) throw notFound("Category");
-  const count = await get<any>("SELECT COUNT(*) AS n FROM products WHERE category=$1::text", row.slug);
-  if (count && Number(count.n) > 0) throw new HttpError(409, "Cannot delete category: " + count.n + " products use it", { slug: row.slug });
-  await run("DELETE FROM categories WHERE id=$1", id);
-  res.json({ ok: true });
-}));
-
-// ---- Stock Adjustment ----
-adminRouter.post("/admin/stock-adjustment", asyncHandler(async (req, res) => {
-  const body = z.object({
-    product_slug: z.string().min(1),
-    quantity: z.number().int().refine((v) => v !== 0, "Quantity cannot be zero"),
-    reason: z.string().min(1),
-    change_type: z.enum(["increase", "decrease", "adjustment", "sale", "refund"]),
-  }).parse(req.body);
-
-  const product = await get<any>("SELECT stock, low_stock_threshold, status FROM products WHERE slug=$1", body.product_slug);
-  if (!product) throw notFound("Product");
-
-  const newStock = product.stock + body.quantity;
-  if (newStock < 0) throw new HttpError(400, "Stock cannot go below zero", { product_slug: body.product_slug });
-
-  await run(
-    `INSERT INTO stock_movements (product_slug, order_id, previous_stock, new_stock, reason, change_type, created_at) VALUES ($1, NULL, $2, $3, $4, $5, $6)`,
-    body.product_slug, product.stock, newStock, body.reason, body.change_type, nowIso()
-  );
-
-  await run("UPDATE products SET stock=$1, updated_at=$2 WHERE slug=$3", newStock, nowIso(), body.product_slug);
-
-  const updatedProduct = await get<any>("SELECT status, low_stock_threshold, stock FROM products WHERE slug=$1", body.product_slug);
-  const isLowStock = updatedProduct.stock <= (updatedProduct.low_stock_threshold ?? 5) && updatedProduct.status === "active";
-
-  res.json({
-    ok: true,
-    previousStock: product.stock,
-    newStock: newStock,
-    isLowStock,
-    lowStockThreshold: updatedProduct.low_stock_threshold,
-  });
-}));
-
-// ---- Products ------------------------------------------------------------------
-adminRouter.get("/admin/products", asyncHandler(async (req, res) => {
-  const { limit, offset } = page(req.query);
-  const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
-  const like = q ? `%${q.replace(/[\\\\%_]/g, (c) => `\\\\${c}`)}%` : null;
-  const statusFilter = req.query.status as string | undefined;
-  
-  // FIXED: Changed shortDescription to short_description and display_order to created_at
-  const rows = await all<any>(`
-    SELECT p.*, c.name AS category_name, c.slug AS category_slug
-    FROM products p
-    LEFT JOIN categories c ON c.slug = p.category
-    WHERE ($1::text IS NULL OR p.name ILIKE $2 OR p.slug ILIKE $2 OR p.short_description ILIKE $2)
-    AND ($3::text IS NULL OR p.status = $3)
-    ORDER BY p.created_at DESC
-    LIMIT $4 OFFSET $5`,
-    like, like, statusFilter, limit, offset
-  );
-  
-  res.json(rows.map((r) => ({
-    id: Number(r.id) || undefined,
-    slug: r.slug,
-    name: r.name,
-    category: r.category,
-    category_name: r.category_name,
-    category_slug: r.category_slug,
-    shortDescription: r.short_description,
-    description: r.description,
-    price: r.price,
-    stock: r.stock,
-    // FIXED: Safe JSON parse
-    images: typeof r.images === "string" ? JSON.parse(r.images) : (r.images ?? []),
-    size: r.size,
-    featured: r.featured === 1,
-    status: r.status,
-    low_stock_threshold: r.low_stock_threshold,
-    created_at: r.created_at,
-  })));
-}));
-
-adminRouter.post("/admin/products", asyncHandler(async (req, res) => {
-  const body = z.object({
-    name: z.string().min(1),
-    slug: z.string().min(1).regex(/^[a-z0-9]+$/),
-    category: z.string().min(1),
-    shortDescription: z.string().optional(),
-    description: z.string().optional(),
-    price: z.number().int().min(0),
-    stock: z.number().int().min(0).default(0),
-    size: z.string().optional(),
-    status: z.enum(["draft", "active", "archived"]).default("draft"),
-    low_stock_threshold: z.number().int().min(0).default(5),
-    images: z.array(z.string()).optional(),
-  }).parse(req.body);
-
-  const cat = await get<any>("SELECT 1 FROM categories WHERE slug=$1", body.category);
-  if (!cat) throw new HttpError(400, "Invalid category slug", { category: body.category });
-
-  // FIXED: Replaced nowIso() with $13, $14
-  const r = await run(
-    `INSERT INTO products (slug, name, category, short_description, description, price, stock, size, status, low_stock_threshold, images, featured, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-    body.slug, body.name, body.category, body.shortDescription, body.description, body.price, body.stock, body.size ?? null, body.status, body.low_stock_threshold, body.images ? JSON.stringify(body.images) : "[]", 0, nowIso(), nowIso()
-  );
-  res.status(201).json({ ok: true, product: parseProductRow(r.rows[0]) });
-}));
-
-adminRouter.patch("/admin/products/:slug", asyncHandler(async (req, res) => {
-  const slug = req.params.slug;
-  const body = z.object({
-    price: z.number().int().min(0).optional(),
-    stock: z.number().int().min(0).optional(),
-    status: z.enum(["draft", "active", "archived"]).optional(),
-    low_stock_threshold: z.number().int().min(0).optional(),
-  }).parse(req.body);
-
-  const sets: string[] = [];
-  const vals: any[] = [];
-  let i = 1;
-
-  if (body.price !== undefined) { sets.push(`price=$${i}`); vals.push(body.price); i++; }
-  if (body.stock !== undefined) { sets.push(`stock=$${i}`); vals.push(body.stock); i++; }
-  if (body.status !== undefined) { sets.push(`status=$${i}`); vals.push(body.status); i++; }
-  if (body.low_stock_threshold !== undefined) { sets.push(`low_stock_threshold=$${i}`); vals.push(body.low_stock_threshold); i++; }
-
-  if (sets.length === 0) return res.json({ ok: true, message: "No fields to update" });
-
-  // FIXED: Added updated_at bind parameter
-  sets.push(`updated_at=$${i}`); vals.push(nowIso()); i++;
-  
-  vals.push(slug);
-  await run(`UPDATE products SET ${sets.join(",")} WHERE slug=$${i}`, ...vals);
-  res.json({ ok: true });
-}));
-
-adminRouter.patch("/admin/products/:slug/status", asyncHandler(async (req, res) => {
-  const slug = req.params.slug;
-  const { status } = z.object({ status: z.enum(["draft", "active", "archived"]) }).parse(req.body);
-  const row = await get<any>("SELECT * FROM products WHERE slug=$1", slug);
-  if (!row) throw notFound("Product");
-  // FIXED: Swapped status to $1 and slug to $2 (previously slug was $1 twice)
-  await run("UPDATE products SET status=$1, updated_at=$3 WHERE slug=$2", status, slug, nowIso());
-  res.json({ ok: true, status });
-}));
-
-function parseProductRow(r: any) {
-  return {
-    id: Number(r.id),
-    slug: r.slug,
-    name: r.name,
-    category: r.category,
-    shortDescription: r.short_description, // FIXED: column name
-    description: r.description,
-    price: r.price,
-    stock: r.stock,
-    images: typeof r.images === "string" ? JSON.parse(r.images) : (r.images ?? []), // FIXED: safe parse
-    size: r.size,
-    featured: r.featured === 1,
-    status: r.status,
-    low_stock_threshold: r.low_stock_threshold,
-  };
-}
