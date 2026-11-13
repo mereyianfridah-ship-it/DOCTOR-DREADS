@@ -88,6 +88,11 @@ catalogRouter.get("/products/:slug", async (req, res) => {
   res.json(product(r));
 });
 
+catalogRouter.get("/categories", async (_req, res) => {
+  const rows = await all("SELECT name, slug FROM categories WHERE active=TRUE ORDER BY display_order, name");
+  res.json(rows);
+});
+
 catalogRouter.get("/gallery", async (req, res) => {
   const category = typeof req.query.category === "string" ? req.query.category : null;
   res.json((await all("SELECT * FROM gallery WHERE ($1::text IS NULL OR category=$2) ORDER BY sort", category, category))

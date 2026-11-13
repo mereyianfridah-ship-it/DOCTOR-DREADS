@@ -1,12 +1,34 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { createApp } from "../src/app.js";
 import { get, run, initDb, seedIfEmpty } from "../src/db.js";
 import { addDays, todayEAT } from "../src/lib/util.js";
 
+// Never hit the real Cloudinary in tests.
+vi.mock("../src/lib/cloudinary.js", () => ({
+  cloudinary: {},
+  isCloudinaryConfigured: true,
+  uploadImage: vi.fn(async (_buf: Buffer, opts: { folder: string }) => ({
+    publicId: `${opts.folder}/test-${Math.random().toString(36).slice(2)}`,
+    secureUrl: "https://res.cloudinary.test/image.jpg",
+    mime: "image/jpeg",
+    bytes: 123,
+    width: 10,
+    height: 10,
+  })),
+  destroyImage: vi.fn(async () => undefined),
+  privateImageUrl: vi.fn(() => "https://res.cloudinary.test/private.jpg"),
+}));
+
 const app = createApp();
 const api = () => request(app);
+/** Sessions live in an HttpOnly cookie; pull the JWT out of Set-Cookie to reuse as a Bearer token. */
+const tokenOf = (res: request.Response): string => {
+  const raw = ([] as string[]).concat((res.headers["set-cookie"] as unknown as string[] | string | undefined) ?? []);
+  const hit = raw.map((c) => /^token=([^;]+)/.exec(c)?.[1]).find(Boolean);
+  return hit ?? "";
+};
 
 beforeAll(async () => {
   await initDb();
@@ -47,12 +69,12 @@ describe("auth", () => {
     const l = await api().post("/api/auth/login").send({ email: "AMINA@example.com", password: customer.password });
     expect(l.status).toBe(200);
     expect((await api().get("/api/auth/me")).status).toBe(401);
-    expect((await api().get("/api/auth/me").set("Authorization", `Bearer ${l.body.token}`)).body.user.email).toBe(customer.email);
+    expect((await api().get("/api/auth/me").set("Authorization", `Bearer ${tokenOf(l)}`)).body.user.email).toBe(customer.email);
     expect((await api().get("/api/auth/me").set("Authorization", "Bearer garbage")).status).toBe(401);
   });
   it("blocks customers from admin routes", async () => {
     const l = await api().post("/api/auth/login").send({ email: customer.email, password: customer.password });
-    expect((await api().get("/api/admin/orders").set("Authorization", `Bearer ${l.body.token}`)).status).toBe(403);
+    expect((await api().get("/api/admin/orders").set("Authorization", `Bearer ${tokenOf(l)}`)).status).toBe(403);
     expect((await api().get("/api/admin/orders")).status).toBe(401);
   });
 });
@@ -160,7 +182,7 @@ describe("orders", () => {
   });
   it("signed-in users see their own orders/bookings in account", async () => {
     const l = await api().post("/api/auth/login").send({ email: customer.email, password: customer.password });
-    const auth = { Authorization: `Bearer ${l.body.token}` };
+    const auth = { Authorization: `Bearer ${tokenOf(l)}` };
     const o = await api().post("/api/orders").set(auth).send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: "loc-butter-moisturizer", quantity: 1 }] });
     expect((await api().get("/api/account/orders").set(auth)).body.map((x: any) => x.reference)).toContain(o.body.order.reference);
     expect((await api().get(`/api/orders/${o.body.order.reference}`).set(auth)).status).toBe(200);
@@ -190,7 +212,7 @@ describe("consultations & contact", () => {
   });
   it("only admins can read photos", async () => {
     await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
-    const t = (await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" })).body.token;
+    const t = tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }));
     const list = (await api().get("/api/admin/consultations").set("Authorization", `Bearer ${t}`)).body;
     const photo = list.find((c: any) => c.photos.length).photos[0];
     expect((await api().get(photo.url)).status).toBe(401);
@@ -203,13 +225,13 @@ describe("consultations & contact", () => {
     expect((await api().post("/api/contact").send(m)).status).toBe(201);
     expect((await api().post("/api/contact").send({ ...m, message: "short" })).status).toBe(400);
     await api().post("/api/contact").send({ ...m, website: "http://spam" });
-    expect((await get<any>("SELECT COUNT(*) n FROM contact_messages"))!.n).toBe(1);
+    expect((await get<any>("SELECT COUNT(*) n FROM contact_messages"))!.n).toBe("1");
   });
 });
 
 describe("admin", () => {
   it("manages order lifecycle and cancels restore stock", async () => {
-    const t = (await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" })).body.token;
+    const t = tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }));
     const auth = { Authorization: `Bearer ${t}` };
     const s = "wide-tooth-comb";
     const before = (await get<any>("SELECT stock FROM products WHERE slug=?", s)).stock;
@@ -260,7 +282,7 @@ describe("admin orders list & order cancellation (transactional)", () => {
 
   beforeAll(async () => {
     await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
-    const t = (await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" })).body.token;
+    const t = tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }));
     auth = { Authorization: `Bearer ${t}` };
     await removeFailingStockTrigger();
     await run("DELETE FROM products WHERE slug = ANY($1::text[])", [A, B, C]); // only fails if leftover orders reference them
@@ -401,5 +423,67 @@ describe("admin orders list & order cancellation (transactional)", () => {
     expect((await customerCancel(ref)).status).toBe(200);
     expect(await stockOf(A)).toBe(a0 + 1);
     expect(await stockOf(C)).toBe(c0 + 1);
+  });
+});
+
+/* ---------------- product management, categories and image uploads ---------------- */
+
+describe("product admin + image uploads", () => {
+  let auth: { Authorization: string };
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]);
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(32)]);
+
+  beforeAll(async () => {
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    auth = { Authorization: `Bearer ${tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }))}` };
+  });
+
+  it("seeds categories and publishes seeded sample products as active", async () => {
+    const cats = (await api().get("/api/categories")).body;
+    expect(cats.map((c: any) => c.slug)).toContain("moisturizers");
+    expect((await api().get("/api/products")).body.length).toBeGreaterThan(0);
+  });
+
+  it("creates a draft-visible product in admin, hidden from the public shop", async () => {
+    const r = await api().post("/api/admin/products").set(auth).send({ name: "Test Oil", category: "natural-oils", price: 500, stock: 3, status: "draft" });
+    expect(r.status).toBe(201);
+    expect(r.body.product.slug).toBe("test-oil");
+    expect((await api().post("/api/admin/products").set(auth).send({ name: "Test Oil", category: "natural-oils", price: 500 })).status).toBe(409);
+    expect((await api().post("/api/admin/products").set(auth).send({ name: "Bad", category: "nope", price: 1 })).status).toBe(400);
+    expect((await api().get("/api/admin/products?status=draft").set(auth)).body.some((p: any) => p.slug === "test-oil")).toBe(true);
+    expect((await api().get("/api/products")).body.some((p: any) => p.slug === "test-oil")).toBe(false);
+  });
+
+  it("uploads photos, puts real photos first, reorders and deletes", async () => {
+    const up = await api().post("/api/uploads/products/test-oil").set(auth).attach("file", jpeg, { filename: "a.jpg", contentType: "image/jpeg" });
+    expect(up.status).toBe(201);
+    expect(up.body.images).toHaveLength(1);
+    const up2 = await api().post("/api/uploads/products/test-oil").set(auth).attach("file", png, { filename: "b.png", contentType: "image/png" });
+    expect(up2.body.images).toHaveLength(2);
+    const [first, second] = up2.body.images as string[];
+    const re = await api().put("/api/uploads/products/test-oil/order").set(auth).send({ images: [second, first] });
+    expect(re.status).toBe(200);
+    expect((await api().put("/api/uploads/products/test-oil/order").set(auth).send({ images: ["https://x/other.jpg"] })).status).toBe(400);
+    expect((await api().delete("/api/uploads/products/test-oil").set(auth).send({ imageUrl: first })).status).toBe(200);
+  });
+
+  it("drops bundled sample images when the first real photo arrives", async () => {
+    const slug = (await get<any>("SELECT slug FROM products WHERE images LIKE '%/images/product-%' LIMIT 1"))!.slug;
+    const up = await api().post(`/api/uploads/products/${slug}`).set(auth).attach("file", jpeg, { filename: "a.jpg", contentType: "image/jpeg" });
+    expect(up.status).toBe(201);
+    expect(up.body.images.every((u: string) => !u.startsWith("/images/"))).toBe(true);
+  });
+
+  it("rejects spoofed and wrong-type files and anonymous uploads", async () => {
+    const spoof = await api().post("/api/uploads/products/test-oil").set(auth).attach("file", Buffer.from("not an image"), { filename: "x.jpg", contentType: "image/jpeg" });
+    expect(spoof.status).toBe(400);
+    const pdf = await api().post("/api/uploads/products/test-oil").set(auth).attach("file", Buffer.from("%PDF"), { filename: "x.pdf", contentType: "application/pdf" });
+    expect(pdf.status).toBe(400);
+    expect((await api().post("/api/uploads/products/test-oil").attach("file", jpeg, { filename: "a.jpg", contentType: "image/jpeg" })).status).toBe(401);
+  });
+
+  it("keeps public routes reachable for anonymous visitors (upload guard is scoped)", async () => {
+    expect((await api().get("/api/tiktok/public")).status).toBe(200);
+    expect((await api().get("/api/nope")).status).toBe(404);
   });
 });

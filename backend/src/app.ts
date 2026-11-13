@@ -16,6 +16,7 @@ import { paymentsRouter } from "./routes/payments.js";
 import { accountRouter } from "./routes/account.js";
 import { adminRouter, tiktokPublicRouter } from "./routes/admin.js";
 import { uploadsRouter } from "./routes/uploads.js";
+import { isCloudinaryConfigured } from "./lib/cloudinary.js";
 
 export function createApp() {
   const app = express();
@@ -41,12 +42,22 @@ export function createApp() {
       // if (origin.endsWith(".vercel.app")) return callback(null, true);
 
       console.warn(`Blocked by CORS: ${origin}`);
-      return callback(new Error("Not allowed by CORS"));
+      return callback(null, false);
     },
     credentials: true,
   }));
 
   app.use(cookieParser());
+
+  // CSRF defence for cookie auth: browsers always send Origin on cross-site unsafe requests.
+  app.use("/api", (req, res, next) => {
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
+    const origin = req.headers.origin;
+    if (origin && !config.corsOrigins.includes(origin) && !config.corsOrigins.includes("*")) {
+      return res.status(403).json({ error: "Origin not allowed" });
+    }
+    next();
+  });
   app.use(express.json({ limit: "100kb" }));
   
   if (!config.isTest) {
@@ -61,7 +72,7 @@ export function createApp() {
 
   app.get("/api/health", async (_req, res) => { 
     await get("SELECT 1"); 
-    res.json({ ok: true, payments: config.payments.mode }); 
+    res.json({ ok: true, payments: config.payments.mode, cloudinary: isCloudinaryConfigured ? "configured" : "missing" }); 
   });
 
   app.use("/api/auth", authRouter);

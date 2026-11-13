@@ -16,3 +16,6 @@ Because libraries were stubbed, component-level typing (hooks, router, form type
 
 ## What the unit tests cover
 Hold countdown math, status labels (shipped → collection/delivery wording; unpaid never "paid"), cart reconciliation against stock, product helpers, KSh/byte formatting, whole-number parsing, safe redirect, API client (headers, bearer token, JSON vs multipart, error/field mapping, 401 handling, network failure), guest-email memory.
+
+## 2026-11-14 update
+Tests were edited (Cloudinary mock, cookie-based token helper, new product/upload tests) but **not run**: this environment has no network, so dependencies could not be installed. Run `npm install`, `npm run typecheck`, `npm test` in the root and `cd backend && npm run build && npm test` before trusting any result.

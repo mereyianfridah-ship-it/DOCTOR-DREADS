@@ -261,7 +261,8 @@ export async function seedIfEmpty(): Promise<void> {
   await tx(async (t$) => {
     for (const [i, s] of seedJson<any[]>("services").entries()) {
       await t$.run(
-        "INSERT INTO services VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+        `INSERT INTO services (slug,name,category,short_description,description,benefits,image,duration,price_from,booking_type,featured,sort,duration_minutes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         s.slug, s.name, s.category, s.shortDescription, s.description,
         JSON.stringify(s.benefits), s.image, s.duration, s.priceFrom, s.bookingType, s.featured ? 1 : 0, i,
         s.durationMinutes ?? 60
@@ -269,19 +270,20 @@ export async function seedIfEmpty(): Promise<void> {
     }
     for (const [i, p] of seedJson<any[]>("products").entries()) {
       await t$.run(
-        "INSERT INTO products VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        `INSERT INTO products (slug,name,category,short_description,description,price,stock,images,size,featured,sort,status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'active')`,
         p.slug, p.name, p.category, p.shortDescription, p.description,
         p.price, p.stock, JSON.stringify(p.images), p.size, p.featured ? 1 : 0, i
       );
     }
     for (const [i, g] of seedJson<any[]>("gallery").entries()) {
       await t$.run(
-        "INSERT INTO gallery VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        "INSERT INTO gallery (id,title,category,image,after_image,is_video,sort) VALUES ($1,$2,$3,$4,$5,$6,$7)",
         g.id, g.title, g.category, g.image, g.afterImage ?? null, g.isVideo ? 1 : 0, i
       );
     }
     for (const [i, t] of seedJson<any[]>("testimonials").entries()) {
-      await t$.run("INSERT INTO testimonials VALUES ($1,$2,$3,$4,$5)", t.id, t.name, t.detail, t.quote, i);
+      await t$.run("INSERT INTO testimonials (id,name,detail,quote,sort) VALUES ($1,$2,$3,$4,$5)", t.id, t.name, t.detail, t.quote, i);
     }
   });
 }

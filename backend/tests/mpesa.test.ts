@@ -64,7 +64,7 @@ describe("daraja flow", () => {
     // replayed callback is a no-op
     await request(app).post("/api/payments/mpesa/callback/s3cr3t-callback-path").send(cb(id, 0, o.total));
     const row = await get("SELECT COUNT(*) n FROM payments WHERE status='succeeded'");
-    expect(row!.n).toBe(1);
+    expect(Number(row!.n)).toBe(1);
   });
   it("cancelled / underpaid callbacks never release the order", async () => {
     const o = await newOrder();

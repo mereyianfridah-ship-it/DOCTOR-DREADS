@@ -36,10 +36,9 @@ export function Footer() {
             Dreadlocks services and natural hair-care essentials in {siteConfig.location}.
           </p>
           <ul className="mt-6 flex gap-3">
-            {social.map((s) => (
+            {social.filter((s) => s.href).map((s) => (
               <li key={s.id}>
-                {s.href ? (
-                  <a
+                <a
                     href={s.href}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -48,15 +47,6 @@ export function Footer() {
                   >
                     <SocialIcon id={s.id} />
                   </a>
-                ) : (
-                  <span
-                    title={`${s.label} link coming soon`}
-                    aria-label={`${s.label} (link coming soon)`}
-                    className="flex h-10 w-10 items-center justify-center rounded-full border border-cream/15 text-cream/40"
-                  >
-                    <SocialIcon id={s.id} />
-                  </span>
-                )}
               </li>
             ))}
           </ul>
@@ -95,9 +85,9 @@ export function Footer() {
               <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
               {siteConfig.location}
             </li>
-            <li><ContactLine text={contact.phoneDisplay} href={contact.phoneHref} /></li>
-            <li><ContactLine text={contact.whatsappDisplay} href={contact.whatsappHref} /></li>
-            <li><ContactLine text={contact.emailDisplay} href={contact.emailHref} /></li>
+            {contact.phoneDisplay && <li><ContactLine text={contact.phoneDisplay} href={contact.phoneHref} /></li>}
+            {contact.whatsappDisplay && <li><ContactLine text={contact.whatsappDisplay} href={contact.whatsappHref} /></li>}
+            {contact.emailDisplay && <li><ContactLine text={contact.emailDisplay} href={contact.emailHref} /></li>}
           </ul>
         </div>
       </div>

@@ -26,6 +26,10 @@ export const getServices = (signal?: AbortSignal) =>
 export const getProducts = (signal?: AbortSignal) =>
   api<Product[]>("/products", { signal });
 
+export interface Category { name: string; slug: string }
+export const getCategories = (signal?: AbortSignal) =>
+  api<Category[]>("/categories", { signal });
+
 export const getGallery = (signal?: AbortSignal) =>
   api<GalleryItem[]>("/gallery", { signal });
 
@@ -419,7 +423,7 @@ export const adminPayments = (
 
 export const adminCreateProduct = (b: {
   name: string;
-  slug: string;
+  slug?: string;
   category: string;
   shortDescription?: string;
   description?: string;
@@ -438,33 +442,50 @@ export const adminCreateProduct = (b: {
     }
   );
 
+export const adminProducts = (
+  p: { status?: string; q?: string; limit?: number; offset?: number } = {},
+  signal?: AbortSignal
+) => api<Product[]>(`/admin/products${qs({ limit: 200, ...p })}`, { signal });
+
+/** Uploads one photo. The server appends it and drops bundled sample images. */
 export const adminProductImages = (formData: FormData) => {
   const slug = formData.get("product_slug");
   if (!slug) throw new Error("product_slug is required");
-  
-  return api<{ url: string }>(
-    `/uploads/products/${encodeURIComponent(String(slug))}`, 
-    {
-      method: "POST",
-      form: formData,
-    }
+  return api<{ url: string; images: string[] }>(
+    `/uploads/products/${encodeURIComponent(String(slug))}`,
+    { method: "POST", form: formData }
   );
 };
+
+export const adminDeleteProductImage = (slug: string, imageUrl: string) =>
+  api<{ ok: true; images: string[] }>(`/uploads/products/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+    body: { imageUrl },
+  });
+
+/** The first image in the list is the primary photo shown on cards. */
+export const adminReorderProductImages = (slug: string, images: string[]) =>
+  api<{ ok: true; images: string[] }>(`/uploads/products/${encodeURIComponent(slug)}/order`, {
+    method: "PUT",
+    body: { images },
+  });
 
 export const adminUpdateProduct = (
   slug: string,
   b: {
+    name?: string;
+    shortDescription?: string;
+    description?: string;
+    category?: string;
+    size?: string;
+    featured?: boolean;
     price?: number;
     stock?: number;
+    status?: "draft" | "active" | "archived";
+    low_stock_threshold?: number;
   }
 ) =>
-  api<{ ok: true }>(
-    `/admin/products/${encodeURIComponent(slug)}`,
-    {
-      method: "PATCH",
-      body: b,
-    }
-  );
+  api<{ ok: true }>(`/admin/products/${encodeURIComponent(slug)}`, { method: "PATCH", body: b });
 
 
 // Admin service updates

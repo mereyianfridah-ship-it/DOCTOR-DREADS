@@ -25,7 +25,7 @@ export function GalleryPreview() {
         <div className="mt-12 grid gap-4 lg:grid-cols-3">
           <div className="grid grid-cols-2 gap-4 lg:col-span-2">
             {stills.map((g) => (
-              <img key={g.id} src={g.image} alt={`${g.title} (placeholder)`} loading="lazy" className="aspect-[4/5] w-full rounded-2xl object-cover" />
+              <img key={g.id} src={g.image} alt={g.title} loading="lazy" className="aspect-[4/5] w-full rounded-2xl object-cover" />
             ))}
           </div>
           <div className="flex flex-col gap-4">

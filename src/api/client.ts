@@ -40,7 +40,7 @@ export class ApiError extends Error {
 // ---- request options --------------------------------------------------------------------------
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
   /** JSON request body */
   body?: unknown;
@@ -124,6 +124,8 @@ async function toError(
     // Response body could not be read.
   }
 
+  // Sessions live in an HttpOnly cookie, so there is no Authorization header to test for.
+  // Any 401 on a non-auth call means the session expired or was never sent.
   if (res.status === 401 && hadToken) {
     dispatchUnauthorized();
   }
@@ -212,10 +214,7 @@ export async function api<T>(
   }
 
   if (!res.ok) {
-    throw await toError(
-      res,
-      headers.has("Authorization")
-    );
+    throw await toError(res, !path.startsWith("/auth/login") && !path.startsWith("/auth/register"));
   }
 
   return parseResponse<T>(res);
@@ -250,10 +249,7 @@ export async function apiBlob(
   }
 
   if (!res.ok) {
-    throw await toError(
-      res,
-      headers.has("Authorization")
-    );
+    throw await toError(res, true);
   }
 
   return res.blob();
@@ -281,11 +277,13 @@ export const registerUserCookie = (body: {
 export const getMeCookie = (signal?: AbortSignal) =>
   api<{ user: AuthUser }>("/auth/me", { signal });
 
-export const logoutUserCookie = () => {
-  // Clear the HttpOnly cookie - the backend handles this on logout.
-  // We dispatch unauthorized event to clear front-end state.
-  void dispatchUnauthorized();
-  // No need to clear token/setUser since we use HttpOnly cookies
+export const logoutUserCookie = async () => {
+  // The HttpOnly cookie can only be cleared by the server.
+  try {
+    await api<{ ok: true }>("/auth/logout", { method: "POST" });
+  } catch {
+    /* even if the request fails, the caller clears local state */
+  }
 };
 
 // Ensure the cookie-based session is verified.

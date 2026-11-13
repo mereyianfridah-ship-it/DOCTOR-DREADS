@@ -1,3 +1,4 @@
+import { ProductImage } from "../components/common/ProductImage";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ShoppingBag } from "lucide-react";
@@ -51,7 +52,7 @@ function ProductView({ slug }: { slug: string }) {
           </Link>
           <div className="grid gap-12 lg:grid-cols-2">
             <div>
-              <img src={product.images[imgIndex]} alt={`${product.name} (sample image)`} className="aspect-square w-full rounded-2xl object-cover" />
+              <ProductImage src={product.images[imgIndex]} alt={product.name} loading="eager" className="aspect-square w-full rounded-2xl object-cover" />
               {product.images.length > 1 && (
                 <div className="mt-4 flex gap-3">
                   {product.images.map((src, i) => (

@@ -81,7 +81,7 @@ export function GalleryGrid({ items }: { items: GalleryItem[] }) {
             {current.afterImage ? (
               <BeforeAfter before={current.image} after={current.afterImage} title={current.title} />
             ) : (
-              <img src={current.image} alt={`${current.title} (placeholder)`} className="max-h-[75vh] w-full rounded-2xl object-contain" />
+              <img src={current.image} alt={current.title} className="max-h-[75vh] w-full rounded-2xl object-contain" />
             )}
             <p className="mt-4 text-center text-offwhite">{current.title}</p>
             {current.isVideo && (

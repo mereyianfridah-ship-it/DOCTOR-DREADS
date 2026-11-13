@@ -28,7 +28,7 @@ export const config = {
   bcryptCost: isTest ? 4 : 10,
   /** Minutes an unpaid order/booking holds stock or a slot before it expires. */
   holdMinutes: Number(env.HOLD_MINUTES ?? 10),
-  upload: { maxFiles: 5, maxBytes: 5 * 1024 * 1024 },
+  upload: { maxFiles: 5, maxBytes: 10 * 1024 * 1024 },
   /** Cloudinary (secure backend uploads). CLOUDINARY_URL encodes cloud_name/api_key/api_secret. */
   cloudinaryUrl: env.CLOUDINARY_URL ?? "",
   payments: {
@@ -46,6 +46,8 @@ export const config = {
       callbackSecret: env.MPESA_CALLBACK_SECRET ?? "",
     },
   },
+  /** "none" works across Vercel -> Render but is blocked by Safari/Firefox strict modes. Use "lax" with a same-site API (custom domain pair or Vercel /api rewrite). */
+  cookieSameSite: (env.COOKIE_SAMESITE === "lax" || env.COOKIE_SAMESITE === "strict" ? env.COOKIE_SAMESITE : "none") as "none" | "lax" | "strict",
   adminEmail: env.ADMIN_EMAIL ?? "",
   adminPassword: env.ADMIN_PASSWORD ?? "",
 };
@@ -57,6 +59,14 @@ if (config.payments.mode === "daraja") {
     MPESA_PASSKEY: m.passkey, MPESA_CALLBACK_BASE_URL: m.callbackBaseUrl, MPESA_CALLBACK_SECRET: m.callbackSecret,
   }).filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) throw new Error(`PAYMENTS_MODE=daraja requires: ${missing.join(", ")}`);
+}
+if (isProd) {
+  const missing = Object.entries({ DATABASE_URL: env.DATABASE_URL, CORS_ORIGINS: env.CORS_ORIGINS, CLOUDINARY_URL: env.CLOUDINARY_URL })
+    .filter(([, v]) => !v).map(([k]) => k);
+  if (missing.length) throw new Error(`Missing required production env vars: ${missing.join(", ")}`);
+  if (env.CLOUDINARY_URL && !/^cloudinary:\/\/[^:\s]+:[^@\s]+@[^\s]+$/.test(env.CLOUDINARY_URL)) {
+    throw new Error("CLOUDINARY_URL is malformed. Expected cloudinary://API_KEY:API_SECRET@CLOUD_NAME (no quotes or spaces)");
+  }
 }
 if (isProd && config.payments.mode === "mock") {
   throw new Error("[error] PAYMENTS_MODE=mock is not allowed in production. Set PAYMENTS_MODE=daraja or PAYMENTS_MODE=disabled.");

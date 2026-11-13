@@ -6,8 +6,8 @@ export function IntroSection() {
     <section className="section">
       <div className="container-page grid items-center gap-12 lg:grid-cols-2 lg:gap-20">
         <div className="grid grid-cols-2 gap-4">
-          <img src="/images/about.svg" alt="Sample editorial image" loading="lazy" className="aspect-[4/5] w-full rounded-2xl object-cover" />
-          <img src="/images/about-2.svg" alt="Sample editorial image" loading="lazy" className="mt-10 aspect-[4/5] w-full rounded-2xl object-cover" />
+          <img src="/images/about.svg" alt="Dr Dread Kenya styling" loading="lazy" className="aspect-[4/5] w-full rounded-2xl object-cover" />
+          <img src="/images/about-2.svg" alt="Dr Dread Kenya styling" loading="lazy" className="mt-10 aspect-[4/5] w-full rounded-2xl object-cover" />
         </div>
         <div>
           <SectionHeading align="left" eyebrow="Welcome" title="Where Loc Culture Meets Professional Care" />

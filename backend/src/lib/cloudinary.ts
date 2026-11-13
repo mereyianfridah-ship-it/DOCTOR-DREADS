@@ -36,16 +36,17 @@ export async function uploadImage(
         public_id: opts.publicId,
         resource_type: "image",
         type: opts.access === "private" ? "authenticated" : "upload",
+        timeout: 60_000,
       },
       (err: UploadApiErrorResponse | undefined, result?: UploadApiResponse) =>
-        err ? reject(err) : resolve(result!)
+        err ? reject(new HttpError(502, "Image storage service failed. Please try again.")) : resolve(result!)
     );
     stream.end(buffer);
   });
   return {
     publicId: result.public_id,
     secureUrl: result.secure_url,
-    mime: result.format ? `image/${result.format}` : "application/octet-stream",
+    mime: result.format ? (result.format === "jpg" ? "image/jpeg" : `image/${result.format}`) : "application/octet-stream",
     bytes: result.bytes,
     width: result.width,
     height: result.height,

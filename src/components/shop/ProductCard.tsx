@@ -1,3 +1,4 @@
+import { ProductImage } from "../common/ProductImage";
 import { Link } from "react-router-dom";
 import { ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
@@ -26,11 +27,9 @@ export function ProductCard({ product }: { product: Product }) {
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-charcoal/10 bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl">
       <Link to={`/shop/${product.slug}`} className="relative block aspect-square overflow-hidden bg-cream" aria-label={`View ${product.name}`}>
-        <img
+        <ProductImage
           src={product.images[0]}
-          alt={`${product.name}`}
-          loading="lazy"
-          decoding="async"
+          alt={product.name}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
         />
         <span className="absolute left-3 top-3">

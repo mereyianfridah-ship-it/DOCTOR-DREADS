@@ -40,8 +40,8 @@ export async function signToken(u: { id: number }): Promise<string> {
 export function setAuthCookie(res: import("express").Response, token: string): void {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: "none",     // REQUIRED for cross-origin cookies (Render -> Vercel)
-    secure: true,         // REQUIRED when sameSite is "none" (Render is HTTPS)
+    sameSite: config.cookieSameSite, // "none" only while API and site are on different sites; use "lax" once they share a site
+    secure: config.cookieSameSite === "none" ? true : config.isProd,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 }
@@ -49,8 +49,8 @@ export function setAuthCookie(res: import("express").Response, token: string): v
 export function clearAuthCookie(res: import("express").Response): void {
   res.clearCookie(COOKIE_NAME, {
     httpOnly: true,
-    sameSite: "none",
-    secure: true,
+    sameSite: config.cookieSameSite,
+    secure: config.cookieSameSite === "none" ? true : config.isProd,
   });
 }
 

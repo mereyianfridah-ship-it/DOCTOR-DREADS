@@ -63,3 +63,12 @@ Not started (need backend models first). Public gallery/testimonials are read fr
 
 ## Phase 11: security and testing
 See SECURITY_REVIEW.md and TESTING_REPORT.md. Backend and integration suites were **not run**.
+
+## 2026-11-14 remediation (product images, placeholders, hardening)
+Done (code only; NOT built or tested here, no network): see FIX_REPORT.md for the full list.
+- Upload guard scoped to `/uploads`; public `/api/tiktok/public` and the `/api` 404 no longer return 401.
+- Migrations 008 (timestamps; sample products back to `active`) and 009 (categories seed).
+- Admin products now load from `/api/admin/products`; full edit, photo add/primary/delete, safe create+upload retry.
+- `ProductImage` fallback component; alt-text cleanup; placeholder contact/social details hidden until real data exists.
+- Cookie SameSite configurable; Origin (CSRF) check; unified auth module; prod env validation.
+Still blocked on the owner: real contact details, stylists, service prices/durations, real products/gallery photos, legal text.
