@@ -276,7 +276,7 @@ adminRouter.get("/admin/products", asyncHandler(async (req, res) => {
   );
   
   res.json(rows.map((r) => ({
-    id: r.slug, // Frontend needs an ID, we use slug
+    id: r.slug,
     slug: r.slug,
     name: r.name,
     category: r.category,
@@ -329,7 +329,7 @@ adminRouter.post("/admin/products", asyncHandler(async (req, res) => {
       body.low_stock_threshold, 
       body.images ? JSON.stringify(body.images) : "[]", 
       0,
-      Date.now()
+      0 // FIXED: Use 0 instead of Date.now() for the integer 'sort' column
     );
     res.status(201).json({ ok: true, product: parseProductRow(r.rows[0]) });
   } catch (dbError: any) {
