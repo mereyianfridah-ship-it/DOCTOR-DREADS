@@ -7,7 +7,6 @@ import { requireAdmin } from "../lib/auth.js";
 import { bookingView } from "./bookings.js";
 import { orderView } from "./orders.js";
 import { nowIso, reference } from "../lib/util.js";
-import { productCreateSchema, productUpdateSchema, productView, statusView } from "../validators/products.js";
 
 export const adminRouter = Router();
 adminRouter.use("/admin", requireAdmin);
@@ -29,6 +28,7 @@ adminRouter.get("/admin/bookings", async (req, res) => {
   const s = status(req.query.status), { limit, offset } = page(req.query);
   res.json((await all("SELECT b.*, s.name AS service_name FROM bookings b JOIN services s ON s.slug=b.service_slug WHERE ($1::text IS NULL OR b.status=$2) ORDER BY b.date, b.time LIMIT $3 OFFSET $4", s, s, limit, offset)).map(bookingView));
 });
+
 adminRouter.patch("/admin/bookings/:reference", async (req, res) => {
   const { status: st } = z.object({ status: z.enum(["confirmed", "completed", "cancelled"]) }).parse(req.body);
   const b = await get<any>("SELECT id FROM bookings WHERE reference=$1", req.params.reference);
@@ -71,6 +71,7 @@ adminRouter.get("/admin/orders", asyncHandler(async (req, res) => {
   const rows = await all("SELECT * FROM orders WHERE ($1::text IS NULL OR status=$2) ORDER BY id DESC LIMIT $3 OFFSET $4", s, s, limit, offset);
   res.json(await Promise.all(rows.map((o) => orderView(o))));
 }));
+
 adminRouter.patch("/admin/orders/:reference", asyncHandler(async (req, res) => {
   const { status: st } = z.object({ status: z.enum(["processing", "shipped", "delivered", "cancelled"]) }).parse(req.body);
   await tx(async (t$) => {
@@ -96,12 +97,14 @@ adminRouter.get("/admin/consultations", async (req, res) => {
     photos: (await all("SELECT id, original_name AS name, mime, size FROM consultation_photos WHERE consultation_id=$1", c.id)).map((p) => ({ ...p, url: `/api/admin/consultations/${c.reference}/photos/${p.id}` })),
   }))));
 });
+
 adminRouter.patch("/admin/consultations/:reference", async (req, res) => {
   const { status: st } = z.object({ status: z.enum(["new", "contacted", "quoted", "closed"]) }).parse(req.body);
   const r = await run("UPDATE consultations SET status=$1 WHERE reference=$2", st, req.params.reference);
   if (r.rowCount === 0) throw notFound("Consultation");
   res.json({ ok: true });
 });
+
 adminRouter.get("/admin/consultations/:reference/photos/:id", async (req, res) => {
   const p = await get<any>("SELECT p.id FROM consultation_photos p JOIN consultations c ON c.id=p.consultation_id WHERE c.reference=$1 AND p.id=$2", req.params.reference, Number(req.params.id));
   if (!p) throw notFound("Photo");
@@ -112,6 +115,7 @@ adminRouter.get("/admin/messages", async (req, res) => {
   const { limit, offset } = page(req.query);
   res.json((await all("SELECT * FROM contact_messages ORDER BY id DESC LIMIT $1 OFFSET $2", limit, offset)).map((m) => ({ ...m, handled: !!m.handled })));
 });
+
 adminRouter.patch("/admin/messages/:id", async (req, res) => {
   const { handled } = z.object({ handled: z.boolean() }).parse(req.body);
   const r = await run("UPDATE contact_messages SET handled=$1 WHERE id=$2", handled ? 1 : 0, Number(req.params.id));
@@ -130,6 +134,7 @@ adminRouter.patch("/admin/products/:slug", async (req, res) => {
   if (r.rowCount === 0) throw notFound("Product");
   res.json({ ok: true });
 });
+
 adminRouter.patch("/admin/services/:slug", async (req, res) => {
   const b = z.object({ priceFrom: z.number().int().min(0).nullable() }).parse(req.body);
   const r = await run("UPDATE services SET price_from=$1 WHERE slug=$2", b.priceFrom, req.params.slug);
@@ -137,12 +142,12 @@ adminRouter.patch("/admin/services/:slug", async (req, res) => {
   res.json({ ok: true });
 });
 
+// FIXED: Removed the trailing slash from the regex so links with ?params work
 function tiktokVideoId(url: string): string | null {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase().replace(/^www\./, "");
-    const m = u.pathname.match(new RegExp("(?:@[^/]+/)?video/(\\d+)/"));
-    // FIXED: Added ?? null
+    const m = u.pathname.match(new RegExp("(?:@[^/]+/)?video/(\\d+)")); 
     if ((host === "tiktok.com" || host.endsWith(".tiktok.com")) && m) return m[1] ?? null;
     return null;
   } catch {
@@ -156,6 +161,7 @@ const tiktokSchema = z.object({
 });
 
 export const tiktokPublicRouter = Router();
+
 tiktokPublicRouter.get("/tiktok/public", async (_req, res) => {
   const rows = await all<{ id: number; url: string; videoId: string; title: string; sortOrder: number; createdAt: string }>(
     "SELECT id,url,video_id AS videoId,title,sort_order AS sortOrder,created_at AS createdAt FROM tiktok_videos WHERE published=1 ORDER BY sort_order, id"
@@ -216,8 +222,6 @@ adminRouter.delete("/admin/tiktok/:id", asyncHandler(async (req, res) => {
 }));
 
 // ---- Customers directory (read-only) -----------------------------------------------------------
-// Lists registered customer accounts with how many bookings/orders they have made and what they
-// have spent on paid orders. Read-only: nothing here changes existing data or behaviour.
 adminRouter.get("/admin/customers", asyncHandler(async (req, res) => {
   const { limit, offset } = page(req.query);
   const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 100) : "";
