@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { CalendarDays, CreditCard, Inbox, LayoutDashboard, MessageSquare, Package, Scissors, ShoppingBag, Tag } from "lucide-react";
+import { CalendarDays, CreditCard, Inbox, LayoutDashboard, MessageSquare, Package, Scissors, ShoppingBag, Tag, Users, Video } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 const items = [
@@ -11,6 +11,8 @@ const items = [
   { to: "/admin/payments", label: "Payments", icon: CreditCard, end: false },
   { to: "/admin/products", label: "Products", icon: Package, end: false },
   { to: "/admin/services", label: "Services", icon: Scissors, end: false },
+  { to: "/admin/customers", label: "Customers", icon: Users, end: false },
+  { to: "/admin/tiktok", label: "TikTok", icon: Video, end: false },
 ];
 
 export function AdminLayout() {

@@ -214,3 +214,34 @@ adminRouter.delete("/admin/tiktok/:id", asyncHandler(async (req, res) => {
   if (r.rowCount === 0) throw notFound("TikTok video");
   res.json({ ok: true });
 }));
+
+// ---- Customers directory (read-only) -----------------------------------------------------------
+// Lists registered customer accounts with how many bookings/orders they have made and what they
+// have spent on paid orders. Read-only: nothing here changes existing data or behaviour.
+adminRouter.get("/admin/customers", asyncHandler(async (req, res) => {
+  const { limit, offset } = page(req.query);
+  const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 100) : "";
+  const like = q ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+  const rows = await all<any>(
+    `SELECT u.id, u.full_name, u.email, u.phone, u.created_at,
+            (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS bookings,
+            (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id) AS orders,
+            (SELECT COALESCE(SUM(o.total), 0) FROM orders o WHERE o.user_id = u.id AND o.status IN ('paid','processing','shipped','delivered')) AS spent
+       FROM users u
+      WHERE u.role = 'customer'
+        AND ($1::text IS NULL OR u.full_name ILIKE $2 OR u.email ILIKE $2 OR u.phone ILIKE $2)
+      ORDER BY u.id DESC
+      LIMIT $3 OFFSET $4`,
+    like, like, limit, offset,
+  );
+  res.json(rows.map((r) => ({
+    id: Number(r.id),
+    fullName: r.full_name,
+    email: r.email,
+    phone: r.phone,
+    createdAt: r.created_at,
+    bookings: Number(r.bookings),
+    orders: Number(r.orders),
+    spent: Number(r.spent),
+  })));
+}));

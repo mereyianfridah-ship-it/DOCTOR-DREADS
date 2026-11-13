@@ -471,3 +471,61 @@ export const adminUpdateService = (
       body: b,
     }
   );
+
+
+// ---- admin: customers directory ---------------------------------------------------------------
+
+export interface AdminCustomer {
+  id: number;
+  fullName: string;
+  email: string;
+  phone: string;
+  createdAt: string;
+  bookings: number;
+  orders: number;
+  /** Sum of paid / processing / shipped / delivered order totals, in whole KSh. */
+  spent: number;
+}
+
+export const adminCustomers = (
+  p: { q?: string; limit?: number; offset?: number },
+  signal?: AbortSignal
+) => api<AdminCustomer[]>(`/admin/customers${qs(p)}`, { signal });
+
+
+// ---- admin: TikTok videos ---------------------------------------------------------------------
+
+export interface AdminTiktokVideo {
+  id: number;
+  url: string;
+  videoId: string;
+  title: string;
+  published: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+// Postgres folds unquoted aliases to lower case, so accept either casing from the server.
+const toTiktok = (r: Record<string, any>): AdminTiktokVideo => ({
+  id: Number(r.id),
+  url: String(r.url ?? ""),
+  videoId: String(r.videoId ?? r.videoid ?? ""),
+  title: String(r.title ?? ""),
+  published: r.published === true || r.published === 1,
+  sortOrder: Number(r.sortOrder ?? r.sortorder ?? 0),
+  createdAt: String(r.createdAt ?? r.createdat ?? ""),
+});
+
+export const adminTiktokVideos = async (signal?: AbortSignal) =>
+  (await api<Record<string, any>[]>("/admin/tiktok", { signal })).map(toTiktok);
+
+export const adminAddTiktok = (b: { url: string; title: string }) =>
+  api<{ id: number }>("/admin/tiktok", { method: "POST", body: b });
+
+export const adminUpdateTiktok = (
+  id: number,
+  b: { url?: string; title?: string; published?: boolean; sortOrder?: number }
+) => api<{ ok: true }>(`/admin/tiktok/${id}`, { method: "PATCH", body: b });
+
+export const adminDeleteTiktok = (id: number) =>
+  api<{ ok: true }>(`/admin/tiktok/${id}`, { method: "DELETE" });
