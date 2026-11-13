@@ -7,6 +7,7 @@ import { requireAdmin } from "../lib/auth.js";
 import { bookingView } from "./bookings.js";
 import { orderView } from "./orders.js";
 import { nowIso, reference } from "../lib/util.js";
+import { productCreateSchema, productUpdateSchema, productView, statusView } from "../validators/products.js";
 
 export const adminRouter = Router();
 adminRouter.use("/admin", requireAdmin);
