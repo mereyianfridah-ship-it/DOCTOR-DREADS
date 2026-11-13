@@ -24,6 +24,18 @@ function sniffBuffer(buf: Buffer): string | null {
   return null;
 }
 
+// Helper to safely parse the images text column
+function safeParseImages(imagesData: any): string[] {
+  if (!imagesData) return [];
+  if (Array.isArray(imagesData)) return imagesData;
+  try {
+    const parsed = JSON.parse(imagesData);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { files: config.upload.maxFiles, fileSize: config.upload.maxBytes },
@@ -67,15 +79,20 @@ uploadsRouter.post(
     if (!file) throw new HttpError(400, "A photo file is required");
     const actual = sniffBuffer(file.buffer);
     if (!actual || actual !== file.mimetype) throw new HttpError(400, `${file.originalname}: contents do not match a JPG/PNG/WebP image`);
+    
     const product = (await get<any>("SELECT * FROM products WHERE slug=$1", req.params.slug));
     if (!product) throw notFound("Product");
+
     const { publicId, secureUrl, mime, bytes, width, height } = await uploadImage(file.buffer, {
       folder: "drdread/products",
       access: "public",
     });
-    const images: string[] = JSON.parse(product.images ?? "[]");
+
+    // FIXED: Safely parse images
+    const images = safeParseImages(product.images);
     images.push(secureUrl);
     const assetId = reference("MA");
+    
     await tx(async (t$) => {
       await t$.run("UPDATE products SET images=$1 WHERE slug=$2", JSON.stringify(images), req.params.slug);
       await t$.run(
@@ -93,7 +110,10 @@ uploadsRouter.delete(
     const body = z.object({ imageUrl: z.string().url() }).parse(req.body);
     const product = (await get<any>("SELECT * FROM products WHERE slug=$1", req.params.slug));
     if (!product) throw notFound("Product");
-    const images: string[] = JSON.parse(product.images ?? "[]");
+    
+    // FIXED: Safely parse images
+    const images = safeParseImages(product.images);
+    
     if (!images.includes(body.imageUrl)) throw notFound("Image");
     const next = images.filter((u) => u !== body.imageUrl);
     await tx(async (t$) => {
@@ -126,7 +146,7 @@ uploadsRouter.post(
     await tx(async (t$) => {
       for (const [i, f] of files.entries()) {
         const u = uploaded[i];
-        if (!u) continue; // FIXED: guard for undefined
+        if (!u) continue; 
         await t$.run(
           "INSERT INTO consultation_photos (consultation_id,filename,original_name,mime,size,cloudinary_public_id) VALUES ($1,$2,$3,$4,$5,$6)",
           consultation.id, f.originalname, f.originalname.slice(0, 200), u.mime, f.size, u.publicId
@@ -134,7 +154,6 @@ uploadsRouter.post(
       }
     });
     
-    // FIXED: added .filter() to remove undefined objects
     res.status(201).json({
       photos: uploaded.map((u, i) => {
         const f = files[i];
