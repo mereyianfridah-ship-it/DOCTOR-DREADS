@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { toast } from "sonner";
+import { ImagePlus } from "lucide-react";
 import { errorMessage } from "../../api/client";
-import { adminCreateProduct, adminUpdateProduct } from "../../api/endpoints";
+import { adminCreateProduct, adminUpdateProduct, adminProductImages } from "../../api/endpoints";
 import { useCatalog } from "../../context/CatalogContext";
 import { AdminPage, DataTable } from "../../components/admin/AdminUi";
 import { Button } from "../../components/common/Button";
@@ -13,6 +14,9 @@ function ProductRow({ p, onSaved }: { p: Product; onSaved: () => Promise<void> }
   const [price, setPrice] = useState(String(p.price));
   const [stock, setStock] = useState(String(p.stock));
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const priceN = parseWhole(price);
   const stockN = parseWhole(stock);
   const valid = priceN !== null && stockN !== null;
@@ -32,6 +36,27 @@ function ProductRow({ p, onSaved }: { p: Product; onSaved: () => Promise<void> }
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("product_slug", p.slug);
+
+    try {
+      await adminProductImages(formData);
+      await onSaved();
+      toast.success("Image uploaded to Cloudinary!");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <tr>
       <td className="px-4 py-3">
@@ -40,6 +65,35 @@ function ProductRow({ p, onSaved }: { p: Product; onSaved: () => Promise<void> }
           {p.category} · {p.size || ""} · {p.slug}
         </div>
       </td>
+      
+      {/* NEW IMAGE COLUMN */}
+      <td className="px-4 py-3 text-center">
+        <div className="flex flex-col items-center gap-2">
+          {p.images && p.images.length > 0 ? (
+            <img src={p.images[0]} alt={p.name} className="w-16 h-16 object-cover rounded-lg border border-charcoal/10 shadow-sm" />
+          ) : (
+            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-[10px] text-gray-400 border border-dashed">No image</div>
+          )}
+          
+          <input
+            type="file"
+            accept="image/jpeg, image/png, image/webp"
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleImageUpload}
+          />
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1 text-xs font-semibold text-brown hover:underline disabled:opacity-50"
+          >
+            <ImagePlus className="w-3 h-3" />
+            {uploading ? "Uploading..." : "Upload"}
+          </button>
+        </div>
+      </td>
+
       <td className="px-4 py-3">
         <label className="sr-only" htmlFor={`price-${p.slug}`}>Price (KSh) for {p.name}</label>
         <input
@@ -71,7 +125,7 @@ function ProductRow({ p, onSaved }: { p: Product; onSaved: () => Promise<void> }
           {p.status}
         </span>
       </td>
-      <td className="px-4 py-3 flex gap-2">
+      <td className="px-4 py-3">
         <Button size="sm" disabled={!dirty || !valid || saving} onClick={() => void save()}>
           {saving ? "Saving…" : "Save"}
         </Button>
@@ -84,7 +138,6 @@ export default function AdminProducts() {
   const { products, status, error, reload } = useCatalog();
   const [mode, setMode] = useState<"list" | "create">("list");
   
-  // Updated state to match backend requirements
   const [newProduct, setNewProduct] = useState({ 
     name: "", 
     slug: "", 
@@ -104,10 +157,10 @@ export default function AdminProducts() {
         ...newProduct, 
         price: Number(newProduct.price), 
         stock: Number(newProduct.stock),
-        status: "active", // or "draft"
+        status: "active",
         low_stock_threshold: 5
       });
-      toast.success("Product created successfully!");
+      toast.success("Product created successfully! You can now upload an image.");
       setMode("list");
       await reload();
     } catch (e) {
@@ -120,7 +173,7 @@ export default function AdminProducts() {
   return (
     <AdminPage
       title="Products"
-      description="Full product management: create, edit, categories, images, status, and inventory history"
+      description="Manage price, stock, and images. Images are hosted on Cloudinary."
     >
       {mode === "list" ? (
         <div className="space-y-4">
@@ -144,18 +197,12 @@ export default function AdminProducts() {
               <p className="text-sm text-gray-500 mt-1">Create your first product to get started.</p>
             </div>
           ) : (
-            <DataTable head={["Product", "Price (KSh)", "Stock", "Status", "Actions"]}>
+            <DataTable head={["Product", "Image", "Price (KSh)", "Stock", "Status", "Actions"]}>
               {products.map((p) => (
                 <ProductRow key={`${p.slug}-${p.price}-${p.stock}`} p={p} onSaved={reload} />
               ))}
             </DataTable>
           )}
-
-          <div className="mt-4 pt-4 border-t border-charcoal/20">
-            <p className="text-sm text-charcoal/60">
-              {products.filter((p) => p.stock <= (p.low_stock_threshold ?? 5)).length} product(s) below low stock threshold
-            </p>
-          </div>
         </div>
       ) : (
         <div className="max-w-xl space-y-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -186,10 +233,6 @@ export default function AdminProducts() {
                 <option value="tools">Tools</option>
                 <option value="accessories">Accessories</option>
               </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Short Description</label>
-              <input className="input-base w-full" value={newProduct.shortDescription} onChange={e => setNewProduct({...newProduct, shortDescription: e.target.value})} />
             </div>
             <div className="pt-4 flex gap-2">
               <Button type="submit" disabled={isSaving}>{isSaving ? "Creating..." : "Save Product"}</Button>
