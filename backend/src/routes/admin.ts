@@ -128,13 +128,6 @@ adminRouter.get("/admin/payments", async (req, res) => {
   res.json(await all("SELECT id,kind,target_id,method,amount,phone,status,receipt,needs_review,failure_reason,created_at FROM payments ORDER BY id DESC LIMIT $1 OFFSET $2", limit, offset));
 });
 
-adminRouter.patch("/admin/products/:slug", async (req, res) => {
-  const b = z.object({ price: z.number().int().min(0).optional(), stock: z.number().int().min(0).optional() }).parse(req.body);
-  const r = await run("UPDATE products SET price=COALESCE($1,price), stock=COALESCE($2,stock) WHERE slug=$3", b.price ?? null, b.stock ?? null, req.params.slug);
-  if (r.rowCount === 0) throw notFound("Product");
-  res.json({ ok: true });
-});
-
 adminRouter.patch("/admin/services/:slug", async (req, res) => {
   const b = z.object({ priceFrom: z.number().int().min(0).nullable() }).parse(req.body);
   const r = await run("UPDATE services SET price_from=$1 WHERE slug=$2", b.priceFrom, req.params.slug);
@@ -145,13 +138,8 @@ adminRouter.patch("/admin/services/:slug", async (req, res) => {
 // FIXED: TypeScript safe TikTok ID extractor
 function tiktokVideoId(rawUrl: string): string | null {
   try {
-    // 1. Force it to a string to silence TypeScript
     const urlStr = String(rawUrl);
-    
-    // 2. Clean the URL by removing tracking parameters (?is_from_webapp...)
     const cleanUrl = urlStr.split("?")[0] || "";
-    
-    // 3. Parse safely
     const u = new URL(cleanUrl);
     const host = u.hostname.toLowerCase().replace(/^www\./, "");
     const m = u.pathname.match(new RegExp("(?:@[^/]+/)?video/(\\d+)"));
@@ -186,7 +174,6 @@ adminRouter.get("/admin/tiktok", async (_req, res) => {
 
 adminRouter.post("/admin/tiktok", asyncHandler(async (req, res) => {
   const b = tiktokSchema.parse(req.body);
-  
   const videoId = tiktokVideoId(b.url);
   if (!videoId) {
     throw new HttpError(400, "Invalid TikTok URL", { 
@@ -197,7 +184,6 @@ adminRouter.post("/admin/tiktok", asyncHandler(async (req, res) => {
   const exists = await get<any>("SELECT 1 FROM tiktok_videos WHERE video_id=$1", videoId);
   if (exists) throw new HttpError(409, "This TikTok video is already listed", { url: "Duplicate video" });
 
-  // Clean the URL before saving so we don't store the tracking junk
   const cleanUrl = String(b.url).split("?")[0] || "";
 
   const r = await run(
@@ -269,3 +255,121 @@ adminRouter.get("/admin/customers", asyncHandler(async (req, res) => {
     spent: Number(r.spent),
   })));
 }));
+
+// ---- Products ------------------------------------------------------------------
+
+adminRouter.get("/admin/products", asyncHandler(async (req, res) => {
+  const { limit, offset } = page(req.query);
+  const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
+  const like = q ? `%${q.replace(/[\\\\%_]/g, (c) => `\\\\${c}`)}%` : null;
+  const statusFilter = req.query.status as string | undefined;
+  
+  const rows = await all<any>(`
+    SELECT p.*, c.name AS category_name, c.slug AS category_slug
+    FROM products p
+    LEFT JOIN categories c ON c.slug = p.category
+    WHERE ($1::text IS NULL OR p.name ILIKE $2 OR p.slug ILIKE $2 OR p.short_description ILIKE $2)
+    AND ($3::text IS NULL OR p.status = $3)
+    ORDER BY p.created_at DESC
+    LIMIT $4 OFFSET $5`,
+    like, like, statusFilter, limit, offset
+  );
+  
+  res.json(rows.map((r) => ({
+    id: Number(r.id) || undefined,
+    slug: r.slug,
+    name: r.name,
+    category: r.category,
+    category_name: r.category_name,
+    category_slug: r.category_slug,
+    shortDescription: r.short_description,
+    description: r.description,
+    price: r.price,
+    stock: r.stock,
+    images: typeof r.images === "string" ? JSON.parse(r.images) : (r.images ?? []),
+    size: r.size,
+    featured: r.featured === 1,
+    status: r.status,
+    low_stock_threshold: r.low_stock_threshold,
+    created_at: r.created_at,
+  })));
+}));
+
+adminRouter.post("/admin/products", asyncHandler(async (req, res) => {
+  const body = z.object({
+    name: z.string().min(1),
+    slug: z.string().min(1).regex(/^[a-z0-9-]+$/),
+    category: z.string().min(1),
+    shortDescription: z.string().optional(),
+    description: z.string().optional(),
+    price: z.number().int().min(0),
+    stock: z.number().int().min(0).default(0),
+    size: z.string().optional(),
+    status: z.enum(["draft", "active", "archived"]).default("draft"),
+    low_stock_threshold: z.number().int().min(0).default(5),
+    images: z.array(z.string()).optional(),
+  }).parse(req.body);
+
+  const cat = await get<any>("SELECT 1 FROM categories WHERE slug=$1", body.category);
+  if (!cat) throw new HttpError(400, "Invalid category slug", { category: body.category });
+
+  const r = await run(
+    `INSERT INTO products (slug, name, category, short_description, description, price, stock, size, status, low_stock_threshold, images, featured, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+    body.slug, body.name, body.category, body.shortDescription, body.description, body.price, body.stock, body.size ?? null, body.status, body.low_stock_threshold, body.images ? JSON.stringify(body.images) : "[]", 0, nowIso(), nowIso()
+  );
+  res.status(201).json({ ok: true, product: parseProductRow(r.rows[0]) });
+}));
+
+adminRouter.patch("/admin/products/:slug", asyncHandler(async (req, res) => {
+  const slug = req.params.slug;
+  const body = z.object({
+    price: z.number().int().min(0).optional(),
+    stock: z.number().int().min(0).optional(),
+    status: z.enum(["draft", "active", "archived"]).optional(),
+    low_stock_threshold: z.number().int().min(0).optional(),
+  }).parse(req.body);
+
+  const sets: string[] = [];
+  const vals: any[] = [];
+  let i = 1;
+
+  if (body.price !== undefined) { sets.push(`price=$${i}`); vals.push(body.price); i++; }
+  if (body.stock !== undefined) { sets.push(`stock=$${i}`); vals.push(body.stock); i++; }
+  if (body.status !== undefined) { sets.push(`status=$${i}`); vals.push(body.status); i++; }
+  if (body.low_stock_threshold !== undefined) { sets.push(`low_stock_threshold=$${i}`); vals.push(body.low_stock_threshold); i++; }
+
+  if (sets.length === 0) return res.json({ ok: true, message: "No fields to update" });
+
+  sets.push(`updated_at=$${i}`); vals.push(nowIso()); i++;
+  
+  vals.push(slug);
+  await run(`UPDATE products SET ${sets.join(",")} WHERE slug=$${i}`, ...vals);
+  res.json({ ok: true });
+}));
+
+adminRouter.patch("/admin/products/:slug/status", asyncHandler(async (req, res) => {
+  const slug = req.params.slug;
+  const { status } = z.object({ status: z.enum(["draft", "active", "archived"]) }).parse(req.body);
+  const row = await get<any>("SELECT * FROM products WHERE slug=$1", slug);
+  if (!row) throw notFound("Product");
+  await run("UPDATE products SET status=$1, updated_at=$3 WHERE slug=$2", status, slug, nowIso());
+  res.json({ ok: true, status });
+}));
+
+function parseProductRow(r: any) {
+  return {
+    id: Number(r.id),
+    slug: r.slug,
+    name: r.name,
+    category: r.category,
+    shortDescription: r.short_description,
+    description: r.description,
+    price: r.price,
+    stock: r.stock,
+    images: typeof r.images === "string" ? JSON.parse(r.images) : (r.images ?? []),
+    size: r.size,
+    featured: r.featured === 1,
+    status: r.status,
+    low_stock_threshold: r.low_stock_threshold,
+  };
+}
