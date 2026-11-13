@@ -60,20 +60,54 @@ function ProductRow({ p, onSaved }: { p: Product; onSaved: () => Promise<void> }
   return (
     <tr>
       <td className="px-4 py-3">
-        <div className="font-medium">{p.name}</div>
-        <div className="text-xs text-charcoal/55">
-          {p.category} · {p.size || ""} · {p.slug}
+        <div className="flex items-center gap-4">
+          {p.images && p.images.length > 0 ? (
+            <img src={p.images[0]} alt={p.name} className="w-12 h-12 object-cover rounded-lg border shadow-sm" />
+          ) : (
+            <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-[10px] text-gray-400 border border-dashed text-center leading-tight">No<br/>image</div>
+          )}
+          <div>
+            <div className="font-medium">{p.name}</div>
+            <div className="text-xs text-charcoal/55">
+              {p.category} · {p.size || ""} · {p.slug}
+            </div>
+          </div>
         </div>
       </td>
       
-      {/* NEW IMAGE COLUMN */}
-      <td className="px-4 py-3 text-center">
-        <div className="flex flex-col items-center gap-2">
-          {p.images && p.images.length > 0 ? (
-            <img src={p.images[0]} alt={p.name} className="w-16 h-16 object-cover rounded-lg border border-charcoal/10 shadow-sm" />
-          ) : (
-            <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-[10px] text-gray-400 border border-dashed">No image</div>
-          )}
+      <td className="px-4 py-3">
+        <label className="sr-only" htmlFor={`price-${p.slug}`}>Price (KSh) for {p.name}</label>
+        <input
+          id={`price-${p.slug}`}
+          inputMode="numeric"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          className={`input-base !w-24 !py-2 ${priceN === null ? "input-error" : ""}`}
+        />
+      </td>
+      
+      <td className="px-4 py-3">
+        <label className="sr-only" htmlFor={`stock-${p.slug}`}>Stock for {p.name}</label>
+        <input
+          id={`stock-${p.slug}`}
+          inputMode="numeric"
+          value={stock}
+          onChange={(e) => setStock(e.target.value)}
+          className={`input-base !w-20 !py-2 ${stockN === null ? "input-error" : ""}`}
+        />
+      </td>
+
+      <td className="px-4 py-3">
+        <span className={p.status === "archived" ? "text-xs text-gray-500" : p.status === "draft" ? "text-xs text-amber-600" : "text-xs text-green-600"}>
+          {p.status}
+        </span>
+      </td>
+
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={!dirty || !valid || saving} onClick={() => void save()}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
           
           <input
             type="file"
@@ -82,53 +116,16 @@ function ProductRow({ p, onSaved }: { p: Product; onSaved: () => Promise<void> }
             ref={fileInputRef}
             onChange={handleImageUpload}
           />
-          <button
-            type="button"
+          <Button 
+            size="sm" 
+            variant="outline"
             disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 text-xs font-semibold text-brown hover:underline disabled:opacity-50"
           >
-            <ImagePlus className="w-3 h-3" />
+            <ImagePlus className="w-4 h-4 mr-1" />
             {uploading ? "Uploading..." : "Upload"}
-          </button>
+          </Button>
         </div>
-      </td>
-
-      <td className="px-4 py-3">
-        <label className="sr-only" htmlFor={`price-${p.slug}`}>Price (KSh) for {p.name}</label>
-        <input
-          id={`price-${p.slug}`}
-          inputMode="numeric"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          className={`input-base !w-28 !py-2 ${priceN === null ? "input-error" : ""}`}
-        />
-        <div className="mt-1 text-xs text-charcoal/55">now {formatKSh(p.price)}</div>
-      </td>
-      <td className="px-4 py-3">
-        <label className="sr-only" htmlFor={`stock-${p.slug}`}>Stock for {p.name}</label>
-        <input
-          id={`stock-${p.slug}`}
-          inputMode="numeric"
-          value={stock}
-          onChange={(e) => setStock(e.target.value)}
-          className={`input-base !w-24 !py-2 ${stockN === null ? "input-error" : ""}`}
-        />
-        {p.stock <= (p.low_stock_threshold ?? 5) && (
-          <div className="mt-1 text-xs font-semibold text-red-700">
-            {p.stock === 0 ? "Out of stock" : "Low stock"}
-          </div>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        <span className={p.status === "archived" ? "text-xs text-gray-500" : p.status === "draft" ? "text-xs text-amber-600" : "text-xs text-green-600"}>
-          {p.status}
-        </span>
-      </td>
-      <td className="px-4 py-3">
-        <Button size="sm" disabled={!dirty || !valid || saving} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
       </td>
     </tr>
   );
@@ -138,6 +135,7 @@ export default function AdminProducts() {
   const { products, status, error, reload } = useCatalog();
   const [mode, setMode] = useState<"list" | "create">("list");
   
+  // Create form state
   const [newProduct, setNewProduct] = useState({ 
     name: "", 
     slug: "", 
@@ -147,12 +145,24 @@ export default function AdminProducts() {
     shortDescription: "",
     description: ""
   });
+  const [newProductImage, setNewProductImage] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setNewProductImage(file);
+      setPreviewUrl(URL.createObjectURL(file)); // Show a preview instantly
+    }
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
+      // 1. Create the product in Neon DB
       await adminCreateProduct({ 
         ...newProduct, 
         price: Number(newProduct.price), 
@@ -160,8 +170,23 @@ export default function AdminProducts() {
         status: "active",
         low_stock_threshold: 5
       });
-      toast.success("Product created successfully! You can now upload an image.");
+
+      // 2. Upload image to Cloudinary if one was selected
+      if (newProductImage) {
+        const formData = new FormData();
+        formData.append("file", newProductImage);
+        formData.append("product_slug", newProduct.slug);
+        await adminProductImages(formData);
+      }
+
+      toast.success("Product created successfully!");
       setMode("list");
+      
+      // Reset form
+      setNewProductImage(null);
+      setPreviewUrl(null);
+      setNewProduct({ name: "", slug: "", price: "", stock: "", category: "haircare", shortDescription: "", description: "" });
+      
       await reload();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -197,7 +222,7 @@ export default function AdminProducts() {
               <p className="text-sm text-gray-500 mt-1">Create your first product to get started.</p>
             </div>
           ) : (
-            <DataTable head={["Product", "Image", "Price (KSh)", "Stock", "Status", "Actions"]}>
+            <DataTable head={["Product", "Price (KSh)", "Stock", "Status", "Actions"]}>
               {products.map((p) => (
                 <ProductRow key={`${p.slug}-${p.price}-${p.stock}`} p={p} onSaved={reload} />
               ))}
@@ -234,9 +259,44 @@ export default function AdminProducts() {
                 <option value="accessories">Accessories</option>
               </select>
             </div>
+
+            {/* IMAGE UPLOAD SECTION FOR THE CREATE FORM */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Product Image (Optional)</label>
+              
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition"
+              >
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Preview" className="w-24 h-24 object-cover rounded-md shadow-sm" />
+                ) : (
+                  <div className="h-12 w-12 rounded-full bg-cream flex items-center justify-center">
+                    <ImagePlus className="w-6 h-6 text-brown" />
+                  </div>
+                )}
+                
+                <span className="text-sm font-medium text-gray-700">
+                  {newProductImage ? "Change Image" : "Click to select a JPG, PNG or WebP"}
+                </span>
+              </div>
+              
+              <input 
+                type="file" 
+                accept="image/jpeg, image/png, image/webp"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+              />
+            </div>
+
             <div className="pt-4 flex gap-2">
-              <Button type="submit" disabled={isSaving}>{isSaving ? "Creating..." : "Save Product"}</Button>
-              <Button type="button" variant="outline" onClick={() => setMode("list")}>Cancel</Button>
+              <Button type="submit" disabled={isSaving}>
+                {isSaving ? "Creating..." : "Save Product"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setMode("list"); setNewProductImage(null); setPreviewUrl(null); }}>
+                Cancel
+              </Button>
             </div>
           </form>
         </div>
