@@ -6,6 +6,7 @@ import { WhyChoose } from "../components/home/WhyChoose";
 import { GalleryPreview } from "../components/home/GalleryPreview";
 import { Testimonials } from "../components/home/Testimonials";
 import { BookingCTA } from "../components/home/BookingCTA";
+import { TikTokSection } from "../components/TikTokSection";
 
 export default function Home() {
   return (
@@ -16,6 +17,7 @@ export default function Home() {
       <FeaturedProducts />
       <WhyChoose />
       <GalleryPreview />
+      <TikTokSection />
       <Testimonials />
       <BookingCTA />
     </>
