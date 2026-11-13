@@ -313,11 +313,21 @@ adminRouter.post("/admin/products", asyncHandler(async (req, res) => {
   const cat = await get<any>("SELECT 1 FROM categories WHERE slug=$1", body.category);
   if (!cat) throw new HttpError(400, "Invalid category slug", { category: body.category });
 
-  const r = await run(
-    `INSERT INTO products (slug, name, category, short_description, description, price, stock, size, status, low_stock_threshold, images, featured, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-    body.slug, body.name, body.category, body.shortDescription, body.description, body.price, body.stock, body.size ?? null, body.status, body.low_stock_threshold, body.images ? JSON.stringify(body.images) : "[]", 0, nowIso(), nowIso()
-  );
-  res.status(201).json({ ok: true, product: parseProductRow(r.rows[0]) });
+  try {
+    // Explicitly cast $11 to JSONB so Neon doesn't complain
+    const r = await run(
+      `INSERT INTO products (slug, name, category, short_description, description, price, stock, size, status, low_stock_threshold, images, featured, created_at, updated_at) 
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14) RETURNING *`,
+      body.slug, body.name, body.category, body.shortDescription, body.description, body.price, body.stock, 
+      body.size ?? null, body.status, body.low_stock_threshold, 
+      body.images ? JSON.stringify(body.images) : "[]", 
+      0, nowIso(), nowIso()
+    );
+    res.status(201).json({ ok: true, product: parseProductRow(r.rows[0]) });
+  } catch (dbError: any) {
+    console.error("DB Error creating product:", dbError.message);
+    throw new HttpError(500, `Database error: ${dbError.message}`);
+  }
 }));
 
 adminRouter.patch("/admin/products/:slug", asyncHandler(async (req, res) => {
