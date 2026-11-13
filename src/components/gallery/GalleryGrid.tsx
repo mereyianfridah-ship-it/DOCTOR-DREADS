@@ -2,6 +2,43 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Play, X } from "lucide-react";
 import type { GalleryItem } from "../../types";
 import { BeforeAfter } from "./BeforeAfter";
+import { locsImage, braidsImage } from "../../utils/placeholderImages";
+
+function GalleryImage({ g, index, setActive }: { g: GalleryItem; index: number; setActive: (i: number) => void }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const showPlaceholder = imgFailed;
+  const placeholder = g.category.toLowerCase().includes("braid") ? braidsImage(index + 200) : locsImage(index + 200);
+  return (
+    <li key={g.id} className="break-inside-avoid">
+      <button
+        type="button"
+        onClick={() => setActive(index)}
+        className="group relative block w-full overflow-hidden rounded-2xl bg-cream text-left"
+        aria-label={`Open ${g.title}`}
+      >
+        <img
+          src={showPlaceholder ? placeholder : g.image}
+          alt={`${g.title} (placeholder)`}
+          loading="lazy"
+          decoding="async"
+          onError={() => setImgFailed(true)}
+          className={`w-full object-cover transition duration-500 group-hover:scale-105 ${index % 3 === 0 ? "aspect-[4/5]" : "aspect-square"}`}
+        />
+        {g.isVideo && (
+          <span className="absolute inset-0 flex items-center justify-center bg-charcoal/30">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-gold text-charcoal">
+              <Play className="h-6 w-6" aria-hidden />
+            </span>
+          </span>
+        )}
+        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-charcoal/85 to-transparent p-4 pt-10 text-sm font-medium text-offwhite opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+          {g.title}
+          {g.afterImage ? " · Before & After" : ""}
+        </span>
+      </button>
+    </li>
+  );
+}
 
 export function GalleryGrid({ items }: { items: GalleryItem[] }) {
   const [active, setActive] = useState<number | null>(null);
@@ -32,33 +69,7 @@ export function GalleryGrid({ items }: { items: GalleryItem[] }) {
     <>
       <ul className="columns-1 gap-4 sm:columns-2 lg:columns-3 [&>li]:mb-4">
         {items.map((g, i) => (
-          <li key={g.id} className="break-inside-avoid">
-            <button
-              type="button"
-              onClick={() => setActive(i)}
-              className="group relative block w-full overflow-hidden rounded-2xl bg-cream text-left"
-              aria-label={`Open ${g.title}`}
-            >
-              <img
-                src={g.image}
-                alt={`${g.title} (placeholder)`}
-                loading="lazy"
-                decoding="async"
-                className={`w-full object-cover transition duration-500 group-hover:scale-105 ${i % 3 === 0 ? "aspect-[4/5]" : "aspect-square"}`}
-              />
-              {g.isVideo && (
-                <span className="absolute inset-0 flex items-center justify-center bg-charcoal/30">
-                  <span className="flex h-14 w-14 items-center justify-center rounded-full bg-gold text-charcoal">
-                    <Play className="h-6 w-6" aria-hidden />
-                  </span>
-                </span>
-              )}
-              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-charcoal/85 to-transparent p-4 pt-10 text-sm font-medium text-offwhite opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
-                {g.title}
-                {g.afterImage ? " · Before & After" : ""}
-              </span>
-            </button>
-          </li>
+          <GalleryImage key={g.id} g={g} index={i} setActive={setActive} />
         ))}
       </ul>
 

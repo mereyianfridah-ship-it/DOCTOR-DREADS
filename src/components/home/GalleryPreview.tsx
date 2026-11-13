@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Play } from "lucide-react";
 import { getGallery } from "../../api/endpoints";
@@ -6,6 +7,23 @@ import { ButtonLink } from "../common/Button";
 import { DemoNotice } from "../common/DemoNotice";
 import { SectionHeading } from "../common/SectionHeading";
 import { BeforeAfter } from "../gallery/BeforeAfter";
+import { locsImage, braidsImage } from "../../utils/placeholderImages";
+
+function GalleryImageItem({ g, index }: { g: { id: string; title: string; image: string; category: string }; index: number }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const showPlaceholder = imgFailed;
+  const placeholder = g.category.toLowerCase().includes("braid") ? braidsImage(index + 100) : locsImage(index + 100);
+  return (
+    <img
+      key={g.id}
+      src={showPlaceholder ? placeholder : g.image}
+      alt={g.title}
+      loading="lazy"
+      onError={() => setImgFailed(true)}
+      className="aspect-[4/5] w-full rounded-2xl object-cover"
+    />
+  );
+}
 
 export function GalleryPreview() {
   const { data } = useAsync((s) => getGallery(s), []);
@@ -19,13 +37,13 @@ export function GalleryPreview() {
       <div className="container-page">
         <SectionHeading eyebrow="Gallery" title="Style inspiration" />
         <DemoNotice className="mx-auto mt-8 max-w-2xl">
-          Images are <strong>generic placeholders</strong>, not real Dr Dread Kenya client work. Real photography will replace them.
+          Images are <strong>AI-generated placeholders</strong> while real client photography is being prepared. They are not real Dr Dread Kenya client work.
         </DemoNotice>
 
         <div className="mt-12 grid gap-4 lg:grid-cols-3">
           <div className="grid grid-cols-2 gap-4 lg:col-span-2">
-            {stills.map((g) => (
-              <img key={g.id} src={g.image} alt={g.title} loading="lazy" className="aspect-[4/5] w-full rounded-2xl object-cover" />
+            {stills.map((g, i) => (
+              <GalleryImageItem key={g.id} g={g} index={i} />
             ))}
           </div>
           <div className="flex flex-col gap-4">

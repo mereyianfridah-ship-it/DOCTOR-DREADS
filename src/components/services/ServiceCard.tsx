@@ -1,18 +1,24 @@
+import { useState } from "react";
 import { Clock } from "lucide-react";
 import type { Service } from "../../types";
 import { ButtonLink } from "../common/Button";
 import { PriceLabel } from "./PriceLabel";
+import { serviceImage } from "../../utils/placeholderImages";
 
 export function ServiceCard({ service, showDuration = false }: { service: Service; showDuration?: boolean }) {
   const consultation = service.bookingType === "consultation";
+  const [imgFailed, setImgFailed] = useState(false);
+  const showPlaceholder = !service.image || imgFailed;
+  const placeholder = serviceImage(Math.floor(Math.random() * 10000));
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-charcoal/10 bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl">
       <div className="relative aspect-[4/5] overflow-hidden bg-cream">
         <img
-          src={service.image}
-          alt={`${service.name} (sample image)`}
+          src={showPlaceholder ? placeholder : service.image}
+          alt={`${service.name} (${showPlaceholder ? "AI placeholder" : "sample image"})`}
           loading="lazy"
           decoding="async"
+          onError={() => setImgFailed(true)}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
         />
         <span className="absolute left-3 top-3 rounded-full bg-offwhite/95 px-3 py-1 text-xs font-semibold text-brown">

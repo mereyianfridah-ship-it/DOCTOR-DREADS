@@ -64,7 +64,7 @@ function ProductView({ slug }: { slug: string }) {
                       aria-pressed={i === imgIndex}
                       className={`h-20 w-20 overflow-hidden rounded-lg border-2 ${i === imgIndex ? "border-gold" : "border-transparent"}`}
                     >
-                      <img src={src} alt="" className="h-full w-full object-cover" />
+                      <ProductImage src={src} alt="" category={product.category} className="h-full w-full object-cover" />
                     </button>
                   ))}
                 </div>

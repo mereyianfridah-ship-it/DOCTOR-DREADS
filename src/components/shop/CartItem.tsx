@@ -17,7 +17,7 @@ export function CartItem({ line, compact }: { line: DetailedLine; compact?: bool
         onClick={closeDrawer}
         className={`shrink-0 overflow-hidden rounded-lg bg-cream ${compact ? "h-20 w-20" : "h-24 w-24 sm:h-28 sm:w-28"}`}
       >
-        <ProductImage src={product.images[0]} alt={product.name} className="h-full w-full object-cover" />
+        <ProductImage src={product.images[0]} alt={product.name} category={product.category} className="h-full w-full object-cover" />
       </Link>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex justify-between gap-3">

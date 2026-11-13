@@ -30,6 +30,7 @@ export function ProductCard({ product }: { product: Product }) {
         <ProductImage
           src={product.images[0]}
           alt={product.name}
+          category={product.category}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
         />
         <span className="absolute left-3 top-3">

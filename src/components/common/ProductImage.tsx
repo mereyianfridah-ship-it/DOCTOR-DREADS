@@ -1,28 +1,34 @@
 import { useState } from "react";
+import { placeholderForCategory, fallbackImage } from "../../utils/placeholderImages";
 
-/** Product photo with a neutral fallback for missing or broken images. */
+/** Product photo with a beautiful AI-generated placeholder fallback. */
 export function ProductImage({
   src,
   alt,
+  category,
   className = "",
   loading = "lazy",
 }: {
   src?: string | null;
   alt: string;
+  category?: string;
   className?: string;
   loading?: "lazy" | "eager";
 }) {
   const [failed, setFailed] = useState(false);
-  if (!src || failed) {
-    return (
-      <div
-        role="img"
-        aria-label={`${alt} (no photo yet)`}
-        className={`flex items-center justify-center bg-cream text-xs text-charcoal/40 ${className}`}
-      >
-        No photo yet
-      </div>
-    );
-  }
-  return <img src={src} alt={alt} loading={loading} decoding="async" onError={() => setFailed(true)} className={className} />;
+  const showPlaceholder = !src || failed;
+  const placeholder = showPlaceholder
+    ? placeholderForCategory(category ?? "", Math.floor(Math.random() * 10000))
+    : fallbackImage(Math.floor(Math.random() * 10000));
+
+  return (
+    <img
+      src={showPlaceholder ? placeholder : src}
+      alt={showPlaceholder ? `${alt} (AI placeholder)` : alt}
+      loading={loading}
+      decoding="async"
+      onError={() => setFailed(true)}
+      className={className}
+    />
+  );
 }
