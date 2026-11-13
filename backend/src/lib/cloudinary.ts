@@ -39,7 +39,14 @@ export async function uploadImage(
         timeout: 60_000,
       },
       (err: UploadApiErrorResponse | undefined, result?: UploadApiResponse) =>
-        err ? reject(new HttpError(502, "Image storage service failed. Please try again.")) : resolve(result!)
+        {
+          if (!err) return resolve(result!);
+          // Log the real reason (never the secret) so it shows up in the Render logs.
+          console.error("[cloudinary] upload failed:", { message: err.message, http_code: (err as any).http_code, name: (err as any).name });
+          const code = (err as any).http_code;
+          const hint = code === 401 || code === 403 ? " (server credentials were rejected)" : "";
+          reject(new HttpError(502, `Image storage service failed${hint}. Please try again.`));
+        }
     );
     stream.end(buffer);
   });
