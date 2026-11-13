@@ -324,12 +324,12 @@ adminRouter.post("/admin/products", asyncHandler(async (req, res) => {
       body.description ?? "", 
       body.price, 
       body.stock, 
-      body.size ?? null, 
+      body.size || "Standard", // FIXED: Fallback if size is empty
       body.status, 
       body.low_stock_threshold, 
       body.images ? JSON.stringify(body.images) : "[]", 
       0,
-      0 // FIXED: Use 0 instead of Date.now() for the integer 'sort' column
+      0 
     );
     res.status(201).json({ ok: true, product: parseProductRow(r.rows[0]) });
   } catch (dbError: any) {

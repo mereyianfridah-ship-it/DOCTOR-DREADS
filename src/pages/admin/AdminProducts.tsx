@@ -69,7 +69,7 @@ function ProductRow({ p, onSaved }: { p: Product; onSaved: () => Promise<void> }
           <div>
             <div className="font-medium">{p.name}</div>
             <div className="text-xs text-charcoal/55">
-              {p.category} · {p.size || ""} · {p.slug}
+              {p.category} · {p.size || "Standard"} · {p.slug}
             </div>
           </div>
         </div>
@@ -135,12 +135,12 @@ export default function AdminProducts() {
   const { products, status, error, reload } = useCatalog();
   const [mode, setMode] = useState<"list" | "create">("list");
   
-  // Create form state
   const [newProduct, setNewProduct] = useState({ 
     name: "", 
     slug: "", 
     price: "", 
     stock: "", 
+    size: "", // Added size
     category: "haircare",
     shortDescription: "",
     description: ""
@@ -154,7 +154,7 @@ export default function AdminProducts() {
     const file = e.target.files?.[0];
     if (file) {
       setNewProductImage(file);
-      setPreviewUrl(URL.createObjectURL(file)); // Show a preview instantly
+      setPreviewUrl(URL.createObjectURL(file));
     }
   };
 
@@ -162,7 +162,6 @@ export default function AdminProducts() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // 1. Create the product in Neon DB
       await adminCreateProduct({ 
         ...newProduct, 
         price: Number(newProduct.price), 
@@ -171,7 +170,6 @@ export default function AdminProducts() {
         low_stock_threshold: 5
       });
 
-      // 2. Upload image to Cloudinary if one was selected
       if (newProductImage) {
         const formData = new FormData();
         formData.append("file", newProductImage);
@@ -181,12 +179,9 @@ export default function AdminProducts() {
 
       toast.success("Product created successfully!");
       setMode("list");
-      
-      // Reset form
       setNewProductImage(null);
       setPreviewUrl(null);
-      setNewProduct({ name: "", slug: "", price: "", stock: "", category: "haircare", shortDescription: "", description: "" });
-      
+      setNewProduct({ name: "", slug: "", price: "", stock: "", size: "", category: "haircare", shortDescription: "", description: "" });
       await reload();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -251,19 +246,25 @@ export default function AdminProducts() {
                 <input required type="number" min="0" className="input-base w-full" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} />
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Category</label>
-              <select className="input-base w-full" value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})}>
-                <option value="haircare">Haircare</option>
-                <option value="tools">Tools</option>
-                <option value="accessories">Accessories</option>
-              </select>
+            
+            {/* ADDED SIZE FIELD */}
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-1">Size (Optional)</label>
+                <input className="input-base w-full" placeholder="e.g. 250ml, Standard" value={newProduct.size} onChange={e => setNewProduct({...newProduct, size: e.target.value})} />
+              </div>
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-1">Category</label>
+                <select className="input-base w-full" value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})}>
+                  <option value="haircare">Haircare</option>
+                  <option value="tools">Tools</option>
+                  <option value="accessories">Accessories</option>
+                </select>
+              </div>
             </div>
 
-            {/* IMAGE UPLOAD SECTION FOR THE CREATE FORM */}
             <div>
               <label className="block text-sm font-medium mb-1">Product Image (Optional)</label>
-              
               <div 
                 onClick={() => fileInputRef.current?.click()}
                 className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition"
@@ -275,12 +276,10 @@ export default function AdminProducts() {
                     <ImagePlus className="w-6 h-6 text-brown" />
                   </div>
                 )}
-                
                 <span className="text-sm font-medium text-gray-700">
                   {newProductImage ? "Change Image" : "Click to select a JPG, PNG or WebP"}
                 </span>
               </div>
-              
               <input 
                 type="file" 
                 accept="image/jpeg, image/png, image/webp"
