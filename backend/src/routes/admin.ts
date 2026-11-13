@@ -177,6 +177,9 @@ adminRouter.get("/admin/tiktok", async (_req, res) => {
 });
 
 adminRouter.post("/admin/tiktok", asyncHandler(async (req, res) => {
+  // ADDED: Log exactly what the frontend is sending
+  console.log("TikTok POST body:", req.body); 
+  
   const b = tiktokSchema.parse(req.body);
   const videoId = tiktokVideoId(b.url)!;
   const exists = await get<any>("SELECT 1 FROM tiktok_videos WHERE video_id=$1", videoId);
