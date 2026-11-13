@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "../../api/client";
-import { adminUpdateProduct } from "../../api/endpoints";
+import { adminCreateProduct, adminUpdateProduct } from "../../api/endpoints";
 import { useCatalog } from "../../context/CatalogContext";
-import { AdminPage, DataTable } from "../../components/admin/AdminUi"; // <--- EmptyState removed
+import { AdminPage, DataTable } from "../../components/admin/AdminUi";
 import { Button } from "../../components/common/Button";
 import { formatKSh } from "../../utils/format";
 import { parseWhole } from "../../utils/numbers";
@@ -84,16 +84,30 @@ export default function AdminProducts() {
   const { products, status, error, reload } = useCatalog();
   const [mode, setMode] = useState<"list" | "create">("list");
   
-  const [newProduct, setNewProduct] = useState({ name: "", slug: "", price: "", stock: "", category: "haircare" });
+  // Updated state to match backend requirements
+  const [newProduct, setNewProduct] = useState({ 
+    name: "", 
+    slug: "", 
+    price: "", 
+    stock: "", 
+    category: "haircare",
+    shortDescription: "",
+    description: ""
+  });
   const [isSaving, setIsSaving] = useState(false);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // Uncomment this when you import adminCreateProduct
-      // await adminCreateProduct({ ...newProduct, price: Number(newProduct.price), stock: Number(newProduct.stock) });
-      toast.success("Product created (mocked)");
+      await adminCreateProduct({ 
+        ...newProduct, 
+        price: Number(newProduct.price), 
+        stock: Number(newProduct.stock),
+        status: "active", // or "draft"
+        low_stock_threshold: 5
+      });
+      toast.success("Product created successfully!");
       setMode("list");
       await reload();
     } catch (e) {
@@ -164,6 +178,18 @@ export default function AdminProducts() {
                 <label className="block text-sm font-medium mb-1">Initial Stock</label>
                 <input required type="number" min="0" className="input-base w-full" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} />
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Category</label>
+              <select className="input-base w-full" value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})}>
+                <option value="haircare">Haircare</option>
+                <option value="tools">Tools</option>
+                <option value="accessories">Accessories</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Short Description</label>
+              <input className="input-base w-full" value={newProduct.shortDescription} onChange={e => setNewProduct({...newProduct, shortDescription: e.target.value})} />
             </div>
             <div className="pt-4 flex gap-2">
               <Button type="submit" disabled={isSaving}>{isSaving ? "Creating..." : "Save Product"}</Button>

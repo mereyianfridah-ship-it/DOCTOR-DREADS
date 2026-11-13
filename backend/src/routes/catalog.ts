@@ -33,13 +33,26 @@ catalogRouter.get("/services/:slug", async (req, res) => {
 catalogRouter.get("/products", async (req, res) => {
   await sweepExpired();
   const category = typeof req.query.category === "string" ? req.query.category : null;
+  const status = req.query.status;
   const q = typeof req.query.q === "string" && req.query.q.trim() ? `%${req.query.q.trim().toLowerCase()}%` : null;
   const min = Number(req.query.minPrice), max = Number(req.query.maxPrice);
   const order = { price_asc: "price ASC", price_desc: "price DESC", name: "name ASC" }[String(req.query.sort)] ?? "sort ASC";
+  const where: string[] = [
+    `$1::text IS NULL OR category=$2`,
+    `$3::text IS NULL OR lower(name||' '||short_description) LIKE $4`,
+    `price >= $5 AND price <= $6`,
+  ];
+  const params: any[] = [category, category, q, q, Number.isFinite(min) ? min : 0];
+  if (status) {
+    where.push(`status=$${where.length + 1}`);
+    params.push(status);
+  } else {
+    where.push("status='active'");
+  }
   const rows = await all(
-    `SELECT * FROM products WHERE ($1::text IS NULL OR category=$2) AND ($3::text IS NULL OR lower(name||' '||short_description) LIKE $4)
-     AND price >= $5 AND price <= $6 ORDER BY ${order}`,
-    category, category, q, q, Number.isFinite(min) ? min : 0, Number.isFinite(max) && req.query.maxPrice ? max : 2_000_000_000);
+    `SELECT * FROM products WHERE ${where.join(" AND ")} ORDER BY ${order}`,
+    ...params
+  );
   res.json(rows.map(product));
 });
 catalogRouter.get("/products/:slug", async (req, res) => {

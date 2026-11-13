@@ -6,7 +6,6 @@ import { stockStatus } from "../../utils/product";
 import { formatKSh } from "../../utils/format";
 import { useCart } from "../../context/CartContext";
 import { Button, ButtonLink } from "../common/Button";
-import { DemoBadge } from "../common/DemoNotice";
 
 const tone = { ok: "text-olive", low: "text-brown", out: "text-red-700" } as const;
 
@@ -29,13 +28,15 @@ export function ProductCard({ product }: { product: Product }) {
       <Link to={`/shop/${product.slug}`} className="relative block aspect-square overflow-hidden bg-cream" aria-label={`View ${product.name}`}>
         <img
           src={product.images[0]}
-          alt={`${product.name} (sample image)`}
+          alt={`${product.name}`}
           loading="lazy"
           decoding="async"
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
         />
         <span className="absolute left-3 top-3">
-          <DemoBadge>Demo product</DemoBadge>
+          {product.status === "archived" && (
+            <span className="text-xs text-gray-500">Archived</span>
+          )}
         </span>
       </Link>
       <div className="flex flex-1 flex-col p-5">

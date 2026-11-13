@@ -1,4 +1,3 @@
-
 import { api } from "./client";
 
 import type {
@@ -439,6 +438,40 @@ export const adminPayments = (
 
 
 // Admin product updates
+
+export const adminCreateProduct = (b: {
+  name: string;
+  slug: string;
+  category: string;
+  shortDescription?: string;
+  description?: string;
+  price: number;
+  stock: number;
+  size?: string;
+  status: "draft" | "active" | "archived";
+  low_stock_threshold: number;
+  images?: string[];
+}) =>
+  api<{ ok: true; product: Product }>(
+    `/admin/products`,
+    {
+      method: "POST",
+      body: b,
+    }
+  );
+
+export const adminProductImages = (formData: FormData) => {
+  const slug = formData.get("product_slug");
+  if (!slug) throw new Error("product_slug is required");
+  
+  return api<{ url: string }>(
+    `/admin/products/${encodeURIComponent(String(slug))}/images`,
+    {
+      method: "POST",
+      form: formData,
+    }
+  );
+};
 
 export const adminUpdateProduct = (
   slug: string,

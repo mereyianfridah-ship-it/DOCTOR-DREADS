@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../components/common/Button";
-import { DemoNotice } from "../components/common/DemoNotice";
 import { SectionHeading } from "../components/common/SectionHeading";
 import { ProductGrid } from "../components/shop/ProductGrid";
 import { QuantitySelector } from "../components/shop/QuantitySelector";
@@ -85,7 +84,7 @@ function ProductView({ slug }: { slug: string }) {
                   {product.stock === 0 ? "Out of stock" : "Add to Cart"}
                 </Button>
               </div>
-              <DemoNotice className="mt-8">Demonstration product: not real inventory. Online orders will require full payment at checkout.</DemoNotice>
+              
             </div>
           </div>
         </div>
