@@ -27,6 +27,10 @@ export interface Product {
   images: string[];
   size: string;
   featured?: boolean;
+  /** Product status: draft, active, or archived */
+  status: 'draft' | 'active' | 'archived';
+  /** Low stock threshold (trigger warning when stock <= this value) */
+  low_stock_threshold: number;
 }
 
 export interface Testimonial {
