@@ -270,13 +270,13 @@ adminRouter.get("/admin/products", asyncHandler(async (req, res) => {
     LEFT JOIN categories c ON c.slug = p.category
     WHERE ($1::text IS NULL OR p.name ILIKE $2 OR p.slug ILIKE $2 OR p.short_description ILIKE $2)
     AND ($3::text IS NULL OR p.status = $3)
-    ORDER BY p.created_at DESC
+    ORDER BY p.sort ASC, p.name ASC
     LIMIT $4 OFFSET $5`,
     like, like, statusFilter, limit, offset
   );
   
   res.json(rows.map((r) => ({
-    id: Number(r.id) || undefined,
+    id: r.slug, // Frontend needs an ID, we use slug
     slug: r.slug,
     name: r.name,
     category: r.category,
@@ -291,7 +291,7 @@ adminRouter.get("/admin/products", asyncHandler(async (req, res) => {
     featured: r.featured === 1,
     status: r.status,
     low_stock_threshold: r.low_stock_threshold,
-    created_at: r.created_at,
+    created_at: new Date().toISOString(),
   })));
 }));
 
@@ -314,14 +314,22 @@ adminRouter.post("/admin/products", asyncHandler(async (req, res) => {
   if (!cat) throw new HttpError(400, "Invalid category slug", { category: body.category });
 
   try {
-    // Explicitly cast $11 to JSONB so Neon doesn't complain
     const r = await run(
-      `INSERT INTO products (slug, name, category, short_description, description, price, stock, size, status, low_stock_threshold, images, featured, created_at, updated_at) 
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14) RETURNING *`,
-      body.slug, body.name, body.category, body.shortDescription, body.description, body.price, body.stock, 
-      body.size ?? null, body.status, body.low_stock_threshold, 
+      `INSERT INTO products (slug, name, category, short_description, description, price, stock, size, status, low_stock_threshold, images, featured, sort) 
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      body.slug, 
+      body.name, 
+      body.category, 
+      body.shortDescription ?? "", 
+      body.description ?? "", 
+      body.price, 
+      body.stock, 
+      body.size ?? null, 
+      body.status, 
+      body.low_stock_threshold, 
       body.images ? JSON.stringify(body.images) : "[]", 
-      0, nowIso(), nowIso()
+      0,
+      Date.now()
     );
     res.status(201).json({ ok: true, product: parseProductRow(r.rows[0]) });
   } catch (dbError: any) {
@@ -350,8 +358,6 @@ adminRouter.patch("/admin/products/:slug", asyncHandler(async (req, res) => {
 
   if (sets.length === 0) return res.json({ ok: true, message: "No fields to update" });
 
-  sets.push(`updated_at=$${i}`); vals.push(nowIso()); i++;
-  
   vals.push(slug);
   await run(`UPDATE products SET ${sets.join(",")} WHERE slug=$${i}`, ...vals);
   res.json({ ok: true });
@@ -362,13 +368,13 @@ adminRouter.patch("/admin/products/:slug/status", asyncHandler(async (req, res) 
   const { status } = z.object({ status: z.enum(["draft", "active", "archived"]) }).parse(req.body);
   const row = await get<any>("SELECT * FROM products WHERE slug=$1", slug);
   if (!row) throw notFound("Product");
-  await run("UPDATE products SET status=$1, updated_at=$3 WHERE slug=$2", status, slug, nowIso());
+  await run("UPDATE products SET status=$1 WHERE slug=$2", status, slug);
   res.json({ ok: true, status });
 }));
 
 function parseProductRow(r: any) {
   return {
-    id: Number(r.id),
+    id: r.slug,
     slug: r.slug,
     name: r.name,
     category: r.category,
