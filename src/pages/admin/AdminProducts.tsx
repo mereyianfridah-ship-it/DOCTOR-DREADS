@@ -2,9 +2,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "../../api/client";
 import { adminUpdateProduct } from "../../api/endpoints";
-import { AdminPage, DataTable, QueryState } from "../../components/admin/AdminUi"; // Added QueryState
+import { AdminPage, DataTable } from "../../components/admin/AdminUi"; // Removed QueryState
 import { Button } from "../../components/common/Button";
-import { useCatalog } from "../../context/CatalogContext"; // Fixed import name
+import { useCatalog } from "../../context/CatalogContext";
 import { formatKSh } from "../../utils/format";
 import { parseWhole } from "../../utils/numbers";
 import type { Product } from "../../types";
@@ -87,11 +87,15 @@ export default function AdminProducts() {
       title="Products"
       description="Edit price (whole KSh) and stock. Creating, archiving, categories, SKUs, photo upload and inventory history are not available yet."
     >
-      <QueryState
-        loading={status === "loading"}
-        error={status === "error" ? error : null}
-        onRetry={() => void reload()}
-      >
+      {/* Replaced <QueryState> with basic conditional rendering */}
+      {status === "loading" ? (
+        <div className="py-8 text-center text-charcoal/50">Loading products...</div>
+      ) : status === "error" ? (
+        <div className="py-8 text-center text-red-600">
+          <p>{error}</p>
+          <Button size="sm" onClick={() => void reload()} className="mt-4">Retry</Button>
+        </div>
+      ) : (
         <DataTable
           head={["Product", "Price (KSh)", "Stock", ""]}
           empty={products.length ? undefined : "No products."}
@@ -100,7 +104,7 @@ export default function AdminProducts() {
             <ProductRow key={`${p.slug}-${p.price}-${p.stock}`} p={p} onSaved={reload} />
           ))}
         </DataTable>
-      </QueryState>
+      )}
     </AdminPage>
   );
 }
