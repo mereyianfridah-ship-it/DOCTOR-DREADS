@@ -36,3 +36,9 @@ Housekeeping
 - Inline DDL in `initDb()` still re-creates tables after migrations (needs a tested parity check); migration 007 is still non-idempotent (not edited because it may be applied).
 - Gallery/service image upload UI, only role `admin` allowed, `rejectUnauthorized:false` TLS, sweeper on the hot path, CSP/HSTS, monitoring, `npm audit`.
 - Payments remain disabled by design.
+
+## Image previews (rewritten)
+- LoremFlickr hot-linking removed (random/mismatched photos, frequent load failures). Photos now live in `public/images/photos/<slot>.jpg`, one per slot, matched by search query (`scripts/fetch-photos.mjs`).
+- Run once: `PEXELS_API_KEY=xxxx npm run photos`, then commit `public/images/photos/`. Missing files fall back to the SVG placeholder.
+- IntroSection, About and TestimonialCard now use `PreviewImage` so they also fall back safely.
+- NOT verified: no network in the sandbox, so the script and the build were not run.

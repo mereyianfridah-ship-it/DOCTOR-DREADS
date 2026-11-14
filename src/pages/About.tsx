@@ -3,7 +3,8 @@ import { ButtonLink } from "../components/common/Button";
 import { PageHeader } from "../components/common/PageHeader";
 import { SectionHeading } from "../components/common/SectionHeading";
 import { BookingCTA } from "../components/home/BookingCTA";
-import { salonImage, locsImage } from "../utils/placeholderImages";
+import { PreviewImage } from "../components/common/PreviewImage";
+import { salonImage } from "../utils/placeholderImages";
 
 /** EDITABLE content: replace with the owner's own words. */
 const pillars = [
@@ -19,7 +20,7 @@ export default function About() {
       <PageHeader eyebrow="About" title="Loc culture, professional care" description="The story and philosophy behind Dr Dread Kenya." />
       <section className="section">
         <div className="container-page grid items-center gap-12 lg:grid-cols-2">
-          <img src={salonImage(3)} alt="Sample editorial image" loading="lazy" className="aspect-[4/5] w-full rounded-2xl object-cover" />
+          <PreviewImage src="/images/about.svg" preview={salonImage(3)} alt="Dr Dread Kenya salon" loading="lazy" className="aspect-[4/5] w-full rounded-2xl object-cover" />
           <div>
             <SectionHeading align="left" eyebrow="Who we are" title="Dedicated to dreadlocks and natural hair" />
             <div className="mt-6 space-y-4 text-lg leading-relaxed text-charcoal/75">

@@ -1,12 +1,14 @@
 import { Quote } from "lucide-react";
 import type { Testimonial } from "../../types";
+import { PreviewImage } from "../common/PreviewImage";
 import { avatarImage } from "../../utils/placeholderImages";
 
 export function TestimonialCard({ t }: { t: Testimonial }) {
   return (
     <figure className="flex h-full flex-col rounded-2xl border border-charcoal/10 bg-white p-8 relative">
-      <img
-        src={avatarImage(Number(t.id.charCodeAt(0)) % 10000)}
+      <PreviewImage
+        src={null}
+        preview={avatarImage(t.id)}
         alt={t.name}
         className="absolute -top-8 left-1/2 -translate-x-1/2 h-20 w-20 rounded-full object-cover border-4 border-white bg-charcoal"
         loading="lazy"
