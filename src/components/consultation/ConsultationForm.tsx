@@ -13,6 +13,7 @@ import { Button, ButtonLink } from "../common/Button";
 import { DemoNotice } from "../common/DemoNotice";
 import { FormField } from "../common/FormField";
 import { BookingStepper } from "../booking/BookingStepper";
+import { rememberGuestEmail } from "../../utils/guestAccess";
 import { useCatalog } from "../../context/CatalogContext";
 import { formatBytes, formatKSh } from "../../utils/format";
 import { phoneSchema } from "../../utils/validation";
@@ -133,6 +134,7 @@ export function ConsultationForm() {
     for (const p of photos) form.append("photos", p.file, p.file.name);
     try {
       const r = await submitConsultation(form);
+      rememberGuestEmail("consultation", r.consultation.reference, v.email || v.phone);
       setSubmitted({ reference: r.consultation.reference, photos: r.consultation.photos });
       toast.success("Consultation submitted.");
     } catch (e) {
@@ -156,7 +158,8 @@ export function ConsultationForm() {
           Thank you, {v.fullName.split(" ")[0]}. We received your details and {submitted.photos} photo{submitted.photos === 1 ? "" : "s"}. Dr Dread Kenya will review your request and contact you on <strong>{v.phone}</strong> with a recommendation and quote. Please keep your reference handy.
         </p>
         <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-          <ButtonLink to="/services">Browse services</ButtonLink>
+          <ButtonLink to={`/consultations/${submitted.reference}`}>Track this request</ButtonLink>
+          <ButtonLink to="/services" variant="outline">Browse services</ButtonLink>
           <ButtonLink to="/" variant="outline">Back to home</ButtonLink>
         </div>
       </div>

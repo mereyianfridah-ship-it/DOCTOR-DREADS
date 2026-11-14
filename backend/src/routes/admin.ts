@@ -94,6 +94,8 @@ adminRouter.get("/admin/consultations", async (req, res) => {
   res.json(await Promise.all(consultations.map(async (c) => ({
     reference: c.reference, fullName: c.full_name, phone: c.phone, email: c.email, condition: c.hair_condition, length: c.hair_length,
     locSize: c.loc_size, installType: c.install_type, info: c.info, marketingConsent: !!c.marketing_consent, status: c.status, createdAt: c.created_at,
+    quotationAmount: c.quotation_amount ?? null, quotationNote: c.quotation_note ?? "", quotedAt: c.quoted_at ?? null,
+    quotationResponse: c.quotation_response ?? null, quotationRespondedAt: c.quotation_responded_at ?? null,
     photos: (await all("SELECT id, original_name AS name, mime, size FROM consultation_photos WHERE consultation_id=$1", c.id)).map((p) => ({ ...p, url: `/api/admin/consultations/${c.reference}/photos/${p.id}` })),
   }))));
 });
@@ -104,6 +106,47 @@ adminRouter.patch("/admin/consultations/:reference", async (req, res) => {
   if (r.rowCount === 0) throw notFound("Consultation");
   res.json({ ok: true });
 });
+
+const quotationSchema = z.object({
+  quotationAmount: z.number("Enter the quoted amount in KSh").int("Use a whole number of KSh").positive("The amount must be more than zero").max(10_000_000, "That amount looks too large"),
+  quotationNote: z.string().trim().max(1000, "Please keep the note under 1000 characters").default(""),
+});
+
+// Sets (or revises) the quotation the customer sees on their consultation status page.
+adminRouter.patch("/admin/consultations/:reference/quotation", asyncHandler(async (req, res) => {
+  const { quotationAmount, quotationNote } = quotationSchema.parse(req.body);
+  const c = await get<any>("SELECT id, status FROM consultations WHERE reference=$1", req.params.reference);
+  if (!c) throw notFound("Consultation");
+  if (c.status === "closed") throw new HttpError(409, "This consultation is closed. Reopen it before sending a quotation.");
+  await run("UPDATE consultations SET quotation_amount=$1, quotation_note=$2, quoted_at=$3, status='quoted', quotation_response=NULL, quotation_responded_at=NULL WHERE id=$4", quotationAmount, quotationNote, nowIso(), c.id);
+  res.json({ ok: true });
+}));
+
+const noteSchema = z.object({ body: z.string().trim().min(1, "Write a note first").max(1000, "Please keep notes under 1000 characters") });
+const noteView = (n: any) => ({ id: n.id, authorName: n.author_name, body: n.body, createdAt: n.created_at });
+
+// Internal notes: staff-only, never part of any customer-facing response.
+adminRouter.get("/admin/consultations/:reference/notes", asyncHandler(async (req, res) => {
+  const c = await get<any>("SELECT id FROM consultations WHERE reference=$1", req.params.reference);
+  if (!c) throw notFound("Consultation");
+  res.json((await all("SELECT * FROM consultation_notes WHERE consultation_id=$1 ORDER BY id DESC", c.id)).map(noteView));
+}));
+
+adminRouter.post("/admin/consultations/:reference/notes", asyncHandler(async (req, res) => {
+  const { body } = noteSchema.parse(req.body);
+  const c = await get<any>("SELECT id FROM consultations WHERE reference=$1", req.params.reference);
+  if (!c) throw notFound("Consultation");
+  const r = await run("INSERT INTO consultation_notes (consultation_id,author_id,author_name,body,created_at) VALUES ($1,$2,$3,$4,$5) RETURNING *", c.id, req.user!.id, req.user!.fullName, body, nowIso());
+  res.status(201).json(noteView(r.rows[0]));
+}));
+
+adminRouter.delete("/admin/consultations/:reference/notes/:id", asyncHandler(async (req, res) => {
+  const noteId = Number(req.params.id);
+  if (!Number.isSafeInteger(noteId)) throw notFound("Note");
+  const r = await run("DELETE FROM consultation_notes n USING consultations c WHERE n.consultation_id=c.id AND c.reference=$1 AND n.id=$2", req.params.reference, noteId);
+  if (r.rowCount === 0) throw notFound("Note");
+  res.json({ ok: true });
+}));
 
 adminRouter.get("/admin/consultations/:reference/photos/:id", async (req, res) => {
   const p = await get<any>("SELECT p.id FROM consultation_photos p JOIN consultations c ON c.id=p.consultation_id WHERE c.reference=$1 AND p.id=$2", req.params.reference, Number(req.params.id));

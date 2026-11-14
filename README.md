@@ -22,7 +22,8 @@ npm run typecheck && npm test && npm run build
 Set `VITE_API_URL` (see `.env.example`) when the API is on another origin.
 
 ## Routes
-Public: `/`, `/about`, `/services[/:slug]`, `/booking`, `/consultation`, `/shop[/:slug]`, `/cart`, `/checkout`, `/gallery`, `/contact`, `/track`, `/bookings/:ref`, `/orders/:ref`.
+Public: `/`, `/about`, `/services[/:slug]`, `/booking`, `/consultation`, `/shop[/:slug]`, `/cart`, `/checkout`, `/gallery`, `/contact`, `/track`, `/bookings/:ref`, `/orders/:ref`, `/consultations/:ref`.
+Auth: `/login`, `/register`, `/forgot-password`, `/reset-password?token=`.
 Account (sign-in required): `/account`, `/account/bookings`, `/account/orders`. Admin (admin role): `/admin/*`.
 
 ## Status and documentation

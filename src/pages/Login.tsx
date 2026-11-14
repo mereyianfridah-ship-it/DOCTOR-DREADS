@@ -45,6 +45,7 @@ export default function Login() {
         <FormField label="Password" htmlFor="l-pass" error={errors.password?.message}>
           <input id="l-pass" type="password" autoComplete="current-password" className={`input-base ${errors.password ? "input-error" : ""}`} {...register("password")} />
         </FormField>
+        <p className="-mt-2 text-right text-sm"><Link to="/forgot-password" className="font-medium text-brown underline">Forgot your password?</Link></p>
         {formError && <p role="alert" className="text-sm text-red-700">{formError}</p>}
         <Button type="submit" size="lg" fullWidth disabled={isSubmitting}>{isSubmitting ? "Signing in…" : "Sign In"}</Button>
       </form>

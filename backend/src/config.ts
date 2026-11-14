@@ -28,6 +28,8 @@ export const config = {
   bcryptCost: isTest ? 4 : 10,
   /** Minutes an unpaid order/booking holds stock or a slot before it expires. */
   holdMinutes: Number(env.HOLD_MINUTES ?? 10),
+  /** Customer self-service rescheduling: how many times, and how many hours before the appointment it must be done. */
+  reschedule: { maxCount: Number(env.RESCHEDULE_MAX ?? 2), minHours: Number(env.RESCHEDULE_MIN_HOURS ?? 24) },
   upload: { maxFiles: 5, maxBytes: 10 * 1024 * 1024 },
   /** Cloudinary (secure backend uploads). CLOUDINARY_URL encodes cloud_name/api_key/api_secret. */
   cloudinaryUrl: env.CLOUDINARY_URL ?? "",
@@ -48,6 +50,11 @@ export const config = {
   },
   /** "none" works across Vercel -> Render but is blocked by Safari/Firefox strict modes. Use "lax" with a same-site API (custom domain pair or Vercel /api rewrite). */
   cookieSameSite: (env.COOKIE_SAMESITE === "lax" || env.COOKIE_SAMESITE === "strict" ? env.COOKIE_SAMESITE : "none") as "none" | "lax" | "strict",
+  /** Public frontend URL used in emailed links. Defaults to the first CORS origin. */
+  appUrl: (env.APP_URL ?? (env.CORS_ORIGINS ?? "http://localhost:5173").split(",")[0] ?? "").trim().replace(/\/+$/, ""),
+  /** Transactional email via Resend (https://resend.com). Without these, emails are only logged in development. */
+  mail: { resendApiKey: env.RESEND_API_KEY ?? "", from: env.MAIL_FROM ?? "" },
+  passwordResetMinutes: Number(env.PASSWORD_RESET_MINUTES ?? 60),
   adminEmail: env.ADMIN_EMAIL ?? "",
   adminPassword: env.ADMIN_PASSWORD ?? "",
 };

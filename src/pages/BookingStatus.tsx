@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessage } from "../api/client";
 import { cancelBooking, getBooking } from "../api/endpoints";
+import { RescheduleBooking } from "../components/booking/RescheduleBooking";
 import { ConfirmAction } from "../components/common/ConfirmAction";
 import { HoldCountdown } from "../components/common/HoldCountdown";
 import { PageHeader } from "../components/common/PageHeader";
@@ -71,6 +72,7 @@ export default function BookingStatus() {
                     <div key={k} className="flex justify-between gap-6 py-3"><dt className="text-charcoal/60">{k}</dt><dd className="text-right font-medium">{v}</dd></div>
                   ))}
                 </dl>
+                <RescheduleBooking booking={b} email={email} onDone={(note) => { if (note) toast.info(note); reload(); }} />
                 {(b.status === "pending_deposit" || b.status === "confirmed") && (
                   <div className="mt-8">
                     <ConfirmAction

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { createApp } from "../src/app.js";
 import { get, run, initDb, seedIfEmpty } from "../src/db.js";
 import { addDays, todayEAT } from "../src/lib/util.js";
+import { testOutbox } from "../src/lib/mailer.js";
 
 // Never hit the real Cloudinary in tests.
 vi.mock("../src/lib/cloudinary.js", () => ({
@@ -130,6 +131,83 @@ describe("bookings", () => {
   });
 });
 
+describe("booking reschedule", () => {
+  const d1 = openDate(10), d2 = openDate(12);
+  const base = { serviceSlug: "loc-retouching", location: "salon", stylist: "stylist-a", fullName: "Mover", phone: "0700333444", email: "mover@example.com", notes: "" };
+  const book = async (date: string, time: string, extra: object = {}) => (await api().post("/api/bookings").send({ ...base, date, time, ...extra })).body.booking;
+  const move = (ref: string, b: object) => api().post(`/api/bookings/${ref}/reschedule`).send({ email: "mover@example.com", ...b });
+  const slot = async (date: string, time: string) => (await api().get(`/api/availability?date=${date}`)).body.slots.find((x: any) => x.time === time).available;
+
+  it("moves a booking, keeps the stylist, frees the old slot, takes the new one and emails the customer", async () => {
+    const b = await book(d1, "10:00");
+    expect(b).toMatchObject({ rescheduleCount: 0, canReschedule: true, rescheduleBlockedReason: null });
+    const before = testOutbox.length;
+    const r = await move(b.reference, { date: d2, time: "11:00" });
+    expect(r.status).toBe(200);
+    expect(r.body.booking).toMatchObject({ date: d2, time: "11:00", stylistId: "stylist-a", rescheduleCount: 1, status: "pending_deposit" });
+    expect(r.body.note).toMatch(/hold time has not been extended/);
+    expect(await slot(d1, "10:00")).toBe(true);
+    expect(testOutbox.length).toBe(before + 1);
+    expect(testOutbox.at(-1)!.to).toBe("mover@example.com");
+  });
+  it("needs proof of ownership and validates the new slot", async () => {
+    const b = await book(d1, "12:00");
+    expect((await api().post(`/api/bookings/${b.reference}/reschedule`).send({ date: d2, time: "12:00" })).status).toBe(404);
+    expect((await api().post(`/api/bookings/${b.reference}/reschedule`).send({ email: "evil@example.com", date: d2, time: "12:00" })).status).toBe(404);
+    let sunday = addDays(todayEAT(), 2); while (new Date(sunday + "T00:00:00Z").getUTCDay() !== 0) sunday = addDays(sunday, 1);
+    expect((await move(b.reference, { date: sunday, time: "12:00" })).status).toBe(400);
+    expect((await move(b.reference, { date: todayEAT(), time: "12:00" })).status).toBe(400);
+    expect((await move(b.reference, { date: d2, time: "03:33" })).status).toBe(400);
+    expect((await move(b.reference, { date: d2, time: "12:00", stylist: "nobody" })).status).toBe(400);
+    expect((await move(b.reference, { date: d1, time: "12:00" })).status).toBe(400); // current time
+  });
+  it("refuses a taken slot with 409 and leaves the booking untouched", async () => {
+    const b = await book(d1, "14:00");
+    await book(d2, "14:00", { stylist: "stylist-a", email: "x1@example.com" });
+    await book(d2, "14:00", { stylist: "stylist-b", email: "x2@example.com" });
+    const r = await move(b.reference, { date: d2, time: "14:00", stylist: "auto" });
+    expect(r.status).toBe(409);
+    const still = (await api().get(`/api/bookings/${b.reference}?email=mover@example.com`)).body.booking;
+    expect(still).toMatchObject({ date: d1, time: "14:00", rescheduleCount: 0 });
+  });
+  it("can move to a later time on the same day", async () => {
+    const b = await book(d1, "15:00");
+    const r = await move(b.reference, { date: d1, time: "16:00" });
+    expect(r.status).toBe(200);
+  });
+  it("enforces the limit of two reschedules", async () => {
+    const b = await book(d2, "09:00");
+    expect((await move(b.reference, { date: d2, time: "10:00" })).status).toBe(200);
+    expect((await move(b.reference, { date: d2, time: "11:00" })).status).toBe(200);
+    const third = await move(b.reference, { date: d2, time: "12:00" });
+    expect(third.status).toBe(409);
+    expect(third.body.error).toMatch(/2 times/);
+    const v = (await api().get(`/api/bookings/${b.reference}?email=mover@example.com`)).body.booking;
+    expect(v).toMatchObject({ canReschedule: false, rescheduleCount: 2 });
+  });
+  it("enforces the notice period and refuses cancelled bookings", async () => {
+    const soon = await book(openDate(14), "10:00");
+    await run("UPDATE bookings SET date=$1 WHERE reference=$2", todayEAT(), soon.reference);
+    const r = await move(soon.reference, { date: d2, time: "17:00" });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/notice/);
+    const gone = await book(openDate(16), "10:00");
+    await api().post(`/api/bookings/${gone.reference}/cancel`).send({ email: "mover@example.com" });
+    expect((await move(gone.reference, { date: d2, time: "17:00" })).status).toBe(409);
+  });
+  it("two simultaneous reschedules into the same last slot: exactly one wins", async () => {
+    const d = openDate(18);
+    await book(d, "17:00", { stylist: "stylist-b", email: "block@example.com" });
+    const a = await book(openDate(20), "09:00", { stylist: "stylist-a", email: "a@example.com" });
+    const c = await book(openDate(20), "10:00", { stylist: "stylist-a", email: "c@example.com" });
+    const [ra, rc] = await Promise.all([
+      api().post(`/api/bookings/${a.reference}/reschedule`).send({ email: "a@example.com", date: d, time: "17:00", stylist: "stylist-a" }),
+      api().post(`/api/bookings/${c.reference}/reschedule`).send({ email: "c@example.com", date: d, time: "17:00", stylist: "stylist-a" }),
+    ]);
+    expect([ra.status, rc.status].sort()).toEqual([200, 409]);
+  });
+});
+
 describe("orders", () => {
   const slug = "loc-butter-moisturizer"; // 1200 KSh
   const stockOf = async (s: string) => (await get<any>("SELECT stock FROM products WHERE slug=?", s))!.stock;
@@ -226,6 +304,163 @@ describe("consultations & contact", () => {
     expect((await api().post("/api/contact").send({ ...m, message: "short" })).status).toBe(400);
     await api().post("/api/contact").send({ ...m, website: "http://spam" });
     expect((await get<any>("SELECT COUNT(*) n FROM contact_messages"))!.n).toBe("1");
+  });
+});
+
+describe("consultation status lookup & quotations", () => {
+  const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+  const fields = { fullName: "Quote Me", phone: "0798765432", email: "quote@example.com", condition: "Natural", length: "Short", locSize: "Small", installType: "Comb coils", info: "Private note" };
+  let ref = "";
+  let admin: Record<string, string> = {};
+  beforeAll(async () => {
+    let r = api().post("/api/consultations");
+    for (const [k, v] of Object.entries(fields)) r = r.field(k, v);
+    ref = (await r.attach("photos", png, { filename: "a.png", contentType: "image/png" })).body.consultation.reference;
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    admin = { Authorization: `Bearer ${tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }))}` };
+  });
+
+  it("returns the customer view for the matching email or phone, without contact details", async () => {
+    for (const contact of ["quote@example.com", "QUOTE@example.com", "0798765432", "+254798765432"]) {
+      const r = await api().get(`/api/consultations/${ref}`).query({ contact });
+      expect(r.status).toBe(200);
+      expect(r.body.consultation).toMatchObject({ reference: ref, status: "new", photos: 1, quotation: null });
+      expect(JSON.stringify(r.body)).not.toMatch(/0798765432|quote@example\.com|Quote Me/);
+    }
+  });
+  it("answers 404 for a wrong, missing or empty contact and for an unknown reference", async () => {
+    expect((await api().get(`/api/consultations/${ref}`)).status).toBe(404);
+    expect((await api().get(`/api/consultations/${ref}`).query({ contact: "" })).status).toBe(404);
+    expect((await api().get(`/api/consultations/${ref}`).query({ contact: "other@example.com" })).status).toBe(404);
+    expect((await api().get("/api/consultations/CON-NOPE00").query({ contact: "quote@example.com" })).status).toBe(404);
+  });
+  it("lets an admin read it without a contact", async () => {
+    expect((await api().get(`/api/consultations/${ref}`).set(admin)).status).toBe(200);
+  });
+
+  it("only admins can set a quotation, and input is validated", async () => {
+    const url = `/api/admin/consultations/${ref}/quotation`;
+    expect((await api().patch(url).send({ quotationAmount: 5000 })).status).toBe(401);
+    for (const bad of [{}, { quotationAmount: 0 }, { quotationAmount: -5 }, { quotationAmount: 12.5 }, { quotationAmount: "5000" }, { quotationAmount: 99_999_999 }, { quotationAmount: 5000, quotationNote: "x".repeat(1001) }])
+      expect((await api().patch(url).set(admin).send(bad)).status).toBe(400);
+    expect((await api().patch("/api/admin/consultations/CON-NOPE00/quotation").set(admin).send({ quotationAmount: 5000 })).status).toBe(404);
+  });
+  it("saves a quotation, marks the request quoted, and shows it to the customer; revising replaces it", async () => {
+    const url = `/api/admin/consultations/${ref}/quotation`;
+    expect((await api().patch(url).set(admin).send({ quotationAmount: 8500, quotationNote: "Includes starter set" })).status).toBe(200);
+    let c = (await api().get(`/api/consultations/${ref}`).query({ contact: "0798765432" })).body.consultation;
+    expect(c.status).toBe("quoted");
+    expect(c.quotation).toMatchObject({ amount: 8500, note: "Includes starter set" });
+    expect(typeof c.quotation.quotedAt).toBe("string");
+    expect((await api().patch(url).set(admin).send({ quotationAmount: 9000 })).status).toBe(200);
+    c = (await api().get(`/api/consultations/${ref}`).query({ contact: "0798765432" })).body.consultation;
+    expect(c.quotation).toMatchObject({ amount: 9000, note: "" });
+    const row = (await api().get("/api/admin/consultations").set(admin)).body.find((x: any) => x.reference === ref);
+    expect(row).toMatchObject({ quotationAmount: 9000, status: "quoted" });
+  });
+  it("lets the customer accept once; a second reply, wrong contact or missing quotation is refused", async () => {
+    const fresh = await (async () => {
+      let r = api().post("/api/consultations");
+      for (const [k, v] of Object.entries({ ...fields, email: "second@example.com", phone: "0711222333" })) r = r.field(k, v);
+      return (await r).body.consultation.reference as string;
+    })();
+    const respond = (r: string, body: object) => api().post(`/api/consultations/${r}/quotation-response`).send(body);
+    expect((await respond(fresh, { response: "accepted", contact: "second@example.com" })).status).toBe(409); // nothing quoted yet
+    await api().patch(`/api/admin/consultations/${fresh}/quotation`).set(admin).send({ quotationAmount: 7000 });
+    expect((await respond(fresh, { response: "accepted", contact: "nobody@example.com" })).status).toBe(404);
+    expect((await respond(fresh, { response: "maybe", contact: "second@example.com" })).status).toBe(400);
+    const ok = await respond(fresh, { response: "accepted", contact: "0711222333" });
+    expect(ok.status).toBe(200);
+    expect(ok.body.consultation.quotation).toMatchObject({ amount: 7000, response: "accepted" });
+    expect((await respond(fresh, { response: "declined", contact: "0711222333" })).status).toBe(409);
+    // A revised quotation clears the earlier answer so the customer can respond to the new price.
+    await api().patch(`/api/admin/consultations/${fresh}/quotation`).set(admin).send({ quotationAmount: 7500 });
+    const again = await respond(fresh, { response: "declined", contact: "second@example.com" });
+    expect(again.status).toBe(200);
+    expect(again.body.consultation.quotation.response).toBe("declined");
+  });
+  it("internal notes: staff-only, validated, listed newest first, deletable, never in the customer view", async () => {
+    const base = `/api/admin/consultations/${ref}/notes`;
+    expect((await api().get(base)).status).toBe(401);
+    expect((await api().post(base).send({ body: "x" })).status).toBe(401);
+    expect((await api().post(base).set(admin).send({ body: "   " })).status).toBe(400);
+    expect((await api().post(base).set(admin).send({ body: "x".repeat(1001) })).status).toBe(400);
+    expect((await api().post("/api/admin/consultations/CON-NOPE00/notes").set(admin).send({ body: "hi" })).status).toBe(404);
+    const a = await api().post(base).set(admin).send({ body: "Called, prefers weekends" });
+    const b = await api().post(base).set(admin).send({ body: "Sent price list" });
+    expect(a.status).toBe(201);
+    expect(a.body).toMatchObject({ body: "Called, prefers weekends", authorName: "Boss" });
+    const list = (await api().get(base).set(admin)).body;
+    expect(list.map((n: any) => n.body)).toEqual(["Sent price list", "Called, prefers weekends"]);
+    const customerView = await api().get(`/api/consultations/${ref}`).query({ contact: "quote@example.com" });
+    expect(JSON.stringify(customerView.body)).not.toMatch(/weekends|price list/);
+    expect((await api().delete(`${base}/abc`).set(admin)).status).toBe(404);
+    expect((await api().delete(`${base}/${a.body.id}`)).status).toBe(401);
+    expect((await api().delete(`${base}/${a.body.id}`).set(admin)).status).toBe(200);
+    expect((await api().delete(`${base}/${a.body.id}`).set(admin)).status).toBe(404);
+    expect((await api().get(base).set(admin)).body).toHaveLength(1);
+    expect(b.status).toBe(201);
+  });
+  it("refuses to quote a closed consultation", async () => {
+    await api().patch(`/api/admin/consultations/${ref}`).set(admin).send({ status: "closed" });
+    expect((await api().patch(`/api/admin/consultations/${ref}/quotation`).set(admin).send({ quotationAmount: 9500 })).status).toBe(409);
+  });
+});
+
+describe("password reset", () => {
+  const acct = { fullName: "Reset Me", email: "reset@example.com", phone: "0700111222", password: "originalpass1", terms: true };
+  const lastLink = () => testOutbox.filter((m) => m.to === acct.email).at(-1)?.text.match(/token=([a-f0-9]{64})/)?.[1];
+  beforeAll(async () => { await api().post("/api/auth/register").send(acct); });
+
+  it("gives the same answer for known and unknown emails, and only emails real accounts", async () => {
+    const before = testOutbox.length;
+    const known = await api().post("/api/auth/forgot-password").send({ email: acct.email });
+    const unknown = await api().post("/api/auth/forgot-password").send({ email: "nobody@example.com" });
+    expect(known.status).toBe(200);
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toEqual(known.body);
+    expect(testOutbox.length).toBe(before + 1);
+    expect((await api().post("/api/auth/forgot-password").send({ email: "not-an-email" })).status).toBe(400);
+  });
+  it("stores only a hash of the token", async () => {
+    const t = lastLink()!;
+    expect(t).toBeTruthy();
+    expect((await get<any>("SELECT COUNT(*) n FROM password_reset_tokens WHERE token_hash=$1", t))!.n).toBe("0");
+  });
+  it("rejects malformed, unknown and weak-password attempts without changing anything", async () => {
+    const t = lastLink()!;
+    expect((await api().post("/api/auth/reset-password").send({ token: "short", password: "newpassword1" })).status).toBe(400);
+    expect((await api().post("/api/auth/reset-password").send({ token: "a".repeat(64), password: "newpassword1" })).status).toBe(400);
+    expect((await api().post("/api/auth/reset-password").send({ token: t, password: "short" })).status).toBe(400);
+    expect((await api().post("/api/auth/login").send({ email: acct.email, password: acct.password })).status).toBe(200);
+  });
+  it("resets once, signs out older sessions, and the old password stops working", async () => {
+    const oldSession = tokenOf(await api().post("/api/auth/login").send({ email: acct.email, password: acct.password }));
+    expect((await api().get("/api/auth/me").set("Authorization", `Bearer ${oldSession}`)).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 1100)); // JWT iat has 1-second resolution
+    const t = lastLink()!;
+    expect((await api().post("/api/auth/reset-password").send({ token: t, password: "brandnewpass1" })).status).toBe(200);
+    expect((await api().post("/api/auth/reset-password").send({ token: t, password: "anotherpass12" })).status).toBe(400); // single use
+    expect((await api().post("/api/auth/login").send({ email: acct.email, password: acct.password })).status).toBe(401);
+    const fresh = await api().post("/api/auth/login").send({ email: acct.email, password: "brandnewpass1" });
+    expect(fresh.status).toBe(200);
+    expect((await api().get("/api/auth/me").set("Authorization", `Bearer ${oldSession}`)).status).toBe(401);
+    expect((await api().get("/api/auth/me").set("Authorization", `Bearer ${tokenOf(fresh)}`)).status).toBe(200);
+  });
+  it("only the newest link works, and expired links are refused", async () => {
+    await api().post("/api/auth/forgot-password").send({ email: acct.email });
+    const first = lastLink()!;
+    await api().post("/api/auth/forgot-password").send({ email: acct.email });
+    const second = lastLink()!;
+    expect(second).not.toBe(first);
+    expect((await api().post("/api/auth/reset-password").send({ token: first, password: "stalelinkpass1" })).status).toBe(400);
+    await run("UPDATE password_reset_tokens SET expires_at='2000-01-01T00:00:00.000Z' WHERE used_at IS NULL");
+    expect((await api().post("/api/auth/reset-password").send({ token: second, password: "expiredpass12" })).status).toBe(400);
+  });
+  it("limits reset emails per account per hour", async () => {
+    const before = testOutbox.filter((m) => m.to === acct.email).length;
+    for (let i = 0; i < 6; i++) await api().post("/api/auth/forgot-password").send({ email: acct.email });
+    expect(testOutbox.filter((m) => m.to === acct.email).length - before).toBeLessThanOrEqual(3);
   });
 });
 

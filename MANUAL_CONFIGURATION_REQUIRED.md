@@ -16,3 +16,11 @@
 | Cloudinary | `CLOUDINARY_URL` on Render | Required for any photo upload; `/api/health` shows `cloudinary: configured|missing` |
 | Payments (M-Pesa Daraja, card), email/SMS/WhatsApp | — | Blocked: later phases (payments stay disabled) |
 | Real stylists | `backend/seed/site.json` | Still "Stylist A/B (demo)"; replace before launch |
+
+## Password reset email (owner action)
+Password reset only works for real customers once email sending is configured. Without it, links are not sent.
+1. Create a free account at https://resend.com and verify the domain you will send from.
+2. Create an API key.
+3. Set these on the backend host: `RESEND_API_KEY`, `MAIL_FROM` (e.g. `Dr Dread Kenya <no-reply@yourdomain.co.ke>`), and `APP_URL` (your public site URL, used in the emailed link).
+4. Apply migration `013_password_reset_tokens.sql` (the backend runs migrations on start).
+5. Test with your own account: request a reset, open the link, set a password, sign in.

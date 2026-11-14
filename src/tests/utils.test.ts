@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatBytes, formatKSh } from "../utils/format";
 import { parseWhole } from "../utils/numbers";
 import { safeRedirect } from "../utils/redirect";
+import { looksLikeEmailOrPhone } from "../utils/validation";
 
 describe("money and sizes", () => {
   it("formats whole KSh amounts", () => {
@@ -38,5 +39,14 @@ describe("safeRedirect (post-login destination)", () => {
     for (const bad of ["https://evil.example", "//evil.example", "/\\evil.example", "javascript:alert(1)", "", undefined, 42, null]) {
       expect(safeRedirect(bad)).toBe("/account");
     }
+  });
+});
+
+describe("looksLikeEmailOrPhone (guest consultation lookup)", () => {
+  it("accepts emails and phone numbers in common Kenyan formats", () => {
+    for (const v of ["amina@example.com", " amina@example.com ", "0712345678", "+254 712 345 678", "0712-345-678"]) expect(looksLikeEmailOrPhone(v)).toBe(true);
+  });
+  it("rejects empty, too-short and malformed values", () => {
+    for (const v of ["", "   ", "amina", "amina@", "12345", "not a phone"]) expect(looksLikeEmailOrPhone(v)).toBe(false);
   });
 });

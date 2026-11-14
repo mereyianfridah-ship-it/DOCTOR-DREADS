@@ -2,8 +2,8 @@ import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { config } from "../config.js";
-import { get, run, tx } from "../db.js";
-import { asyncHandler, HttpError } from "../lib/errors.js";
+import { all, get, run, tx } from "../db.js";
+import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { optionalAuth } from "../lib/auth.js";
 import { email as emailSchema, phone } from "../lib/schemas.js";
 import { sniffBuffer, nowIso, reference } from "../lib/util.js";
@@ -59,6 +59,71 @@ consultationsRouter.post("/consultations", optionalAuth, upload.array("photos", 
   } catch (e) {
     throw e;
   }
+}));
+
+/** Compare two phone numbers by their last 9 digits so 0712 345 678, +254712345678 and 712345678 all match. */
+export function samePhone(a: string, b: string): boolean {
+  const da = a.replace(/\D/g, ""), db = b.replace(/\D/g, "");
+  return da.length >= 9 && db.length >= 9 && da.slice(-9) === db.slice(-9);
+}
+
+/** A guest proves ownership with the email or phone number they gave on the request. */
+export function contactMatches(c: { email: string; phone: string }, contact: unknown): boolean {
+  if (typeof contact !== "string" || !contact.trim()) return false;
+  const q = contact.trim();
+  if (c.email && q.toLowerCase() === c.email.toLowerCase()) return true;
+  return samePhone(c.phone, q);
+}
+
+export const consultationPublicView = (c: any, photoCount: number) => ({
+  reference: c.reference,
+  status: c.status,
+  createdAt: c.created_at,
+  condition: c.hair_condition,
+  length: c.hair_length,
+  locSize: c.loc_size,
+  installType: c.install_type,
+  info: c.info,
+  photos: photoCount,
+  quotation: c.quotation_amount == null ? null : {
+    amount: c.quotation_amount, note: c.quotation_note, quotedAt: c.quoted_at,
+    response: c.quotation_response ?? null, respondedAt: c.quotation_responded_at ?? null,
+  },
+});
+
+/** Owner (signed in), admin, or a guest who supplies the contact given on the request. Same 404 for every failure. */
+async function findOwnedConsultation(req: any, reference: string, contact: unknown) {
+  const c = await get<any>("SELECT * FROM consultations WHERE reference=$1", reference.toUpperCase());
+  const allowed = c && (req.user?.role === "admin" || (req.user && c.user_id === req.user.id) || contactMatches(c, contact));
+  if (!allowed) throw notFound("Consultation");
+  return c;
+}
+
+// Customer-facing status. Contact details are never returned; a wrong reference and a wrong
+// contact both give the same 404 so references cannot be probed.
+consultationsRouter.get("/consultations/:reference", optionalAuth, asyncHandler(async (req, res) => {
+  const c = await findOwnedConsultation(req, String(req.params.reference), req.query.contact);
+  const photos = await all<{ id: number }>("SELECT id FROM consultation_photos WHERE consultation_id=$1", c.id);
+  res.json({ consultation: consultationPublicView(c, photos.length) });
+}));
+
+const responseSchema = z.object({
+  response: z.enum(["accepted", "declined"], "Choose accept or decline"),
+  contact: z.string().max(254).optional(),
+});
+
+// The customer's reply to a quotation. It records intent only: no booking is made and nothing is charged.
+consultationsRouter.post("/consultations/:reference/quotation-response", optionalAuth, asyncHandler(async (req, res) => {
+  const v = responseSchema.parse(req.body);
+  const c = await findOwnedConsultation(req, String(req.params.reference), v.contact ?? req.query.contact);
+  if (c.quotation_amount == null) throw new HttpError(409, "There is no quotation to respond to yet");
+  if (c.status !== "quoted") throw new HttpError(409, "This request is no longer open for a response");
+  // Conditional update: two concurrent replies cannot both succeed.
+  const r = await run("UPDATE consultations SET quotation_response=$1, quotation_responded_at=$2 WHERE id=$3 AND status='quoted' AND quotation_amount IS NOT NULL AND quotation_response IS NULL", v.response, nowIso(), c.id);
+  if (r.rowCount === 0) throw new HttpError(409, "You have already responded to this quotation");
+  const fresh = await get<any>("SELECT * FROM consultations WHERE id=$1", c.id);
+  const photos = await all<{ id: number }>("SELECT id FROM consultation_photos WHERE consultation_id=$1", c.id);
+  res.json({ consultation: consultationPublicView(fresh, photos.length) });
 }));
 
 consultationsRouter.get("/consultation-info", (_req, res) =>

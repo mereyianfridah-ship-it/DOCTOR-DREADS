@@ -30,6 +30,26 @@ export const consultationStatusInfo: Record<ConsultationStatus, { label: string;
   closed: { label: "Closed", tone: "grey" },
 };
 
+/** Steps shown to the customer, in order. "closed" is a terminal state, not a step. */
+export const consultationSteps: { status: Exclude<ConsultationStatus, "closed">; label: string }[] = [
+  { status: "new", label: "Received" },
+  { status: "contacted", label: "We've been in touch" },
+  { status: "quoted", label: "Quotation ready" },
+];
+
+/** Index of the current step (0-based). A closed request has completed every step the salon took. */
+export function consultationStepIndex(status: ConsultationStatus): number {
+  if (status === "closed") return consultationSteps.length - 1;
+  return consultationSteps.findIndex((s) => s.status === status);
+}
+
+export const consultationCustomerMessage: Record<ConsultationStatus, string> = {
+  new: "We have your request and photos. We'll review them and contact you with a recommendation.",
+  contacted: "We've been in touch about your request. If you haven't heard from us, please contact the salon.",
+  quoted: "Your quotation is ready. Contact the salon to agree the next step; nothing is booked or charged automatically.",
+  closed: "This request is closed. You're welcome to start a new consultation at any time.",
+};
+
 /** Minutes:seconds remaining until an ISO timestamp (never negative). */
 export function remainingSeconds(expiresAt: string | null | undefined, now = Date.now()): number {
   if (!expiresAt) return 0;

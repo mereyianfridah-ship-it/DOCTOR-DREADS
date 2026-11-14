@@ -61,10 +61,12 @@ async function loadFromToken(token: string | undefined): Promise<AuthUser | null
     const id = Number(payload.sub);
     if (!Number.isFinite(id)) return null;
     const row = await get<any>(
-      "SELECT id, email, role, full_name FROM users WHERE id=$1",
+      "SELECT id, email, role, full_name, password_changed_at FROM users WHERE id=$1",
       id,
     );
     if (!row) return null;
+    // A password reset invalidates every session issued before it (iat is whole seconds, so compare at that resolution).
+    if (row.password_changed_at && typeof payload.iat === "number" && payload.iat < Math.floor(Date.parse(row.password_changed_at) / 1000)) return null;
     return { id: row.id, email: row.email, role: row.role, fullName: row.full_name };
   } catch {
     return null;

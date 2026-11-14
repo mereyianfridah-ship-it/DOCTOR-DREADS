@@ -96,6 +96,10 @@ export interface BookingRecord {
   status: BookingStatus;
   expiresAt: string | null;
   createdAt: string;
+  rescheduleCount?: number;
+  /** Server-decided: status, limit and notice period already checked. */
+  canReschedule?: boolean;
+  rescheduleBlockedReason?: string | null;
 }
 
 export type OrderStatus = "pending_payment" | "paid" | "processing" | "shipped" | "delivered" | "cancelled" | "expired";
@@ -131,7 +135,40 @@ export interface ConsultationRecord {
   marketingConsent: boolean;
   status: ConsultationStatus;
   createdAt: string;
+  quotationAmount: number | null;
+  quotationNote: string;
+  quotedAt: string | null;
+  quotationResponse: QuotationResponse | null;
+  quotationRespondedAt: string | null;
   photos: { id: number; name: string; mime: string; size: number; url: string }[];
+}
+
+/** What a customer sees about their own consultation request (no contact details, no photo URLs). */
+export type QuotationResponse = "accepted" | "declined";
+export interface ConsultationQuotation {
+  amount: number;
+  note: string;
+  quotedAt: string | null;
+  response: QuotationResponse | null;
+  respondedAt: string | null;
+}
+export interface ConsultationNote {
+  id: number;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+export interface PublicConsultation {
+  reference: string;
+  status: ConsultationStatus;
+  createdAt: string;
+  condition: string;
+  length: string;
+  locSize: string;
+  installType: string;
+  info: string;
+  photos: number;
+  quotation: ConsultationQuotation | null;
 }
 
 export interface ContactMessageRecord {

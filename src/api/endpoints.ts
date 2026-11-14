@@ -4,7 +4,10 @@ import type {
   AdminSummary,
   AuthUser,
   BookingRecord,
+  ConsultationNote,
   ConsultationRecord,
+  QuotationResponse,
+  PublicConsultation,
   ContactMessageRecord,
   GalleryItem,
   OrderRecord,
@@ -65,6 +68,18 @@ export const loginUser = (b: {
     body: b,
   });
 
+export const forgotPassword = (email: string) =>
+  api<{ ok: true; message: string }>("/auth/forgot-password", {
+    method: "POST",
+    body: { email },
+  });
+
+export const resetPassword = (token: string, password: string) =>
+  api<{ ok: true }>("/auth/reset-password", {
+    method: "POST",
+    body: { token, password },
+  });
+
 export const getMe = (signal?: AbortSignal) =>
   api<{ user: AuthUser }>("/auth/me", { signal });
 
@@ -118,6 +133,15 @@ export const getAvailability = (
   api<AvailabilityResponse>(
     `/availability?date=${encodeURIComponent(date)}&stylist=${encodeURIComponent(stylist)}`,
     { signal }
+  );
+
+export const rescheduleBooking = (
+  reference: string,
+  b: { date: string; time: string; stylist?: string; email?: string }
+) =>
+  api<{ booking: BookingRecord; note?: string }>(
+    `/bookings/${encodeURIComponent(reference)}/reschedule`,
+    { method: "POST", body: b }
   );
 
 export interface BookingInput {
@@ -230,6 +254,29 @@ export const submitConsultation = (form: FormData) =>
     method: "POST",
     form,
   });
+
+/** Customer status view. `contact` is the email or phone number given on the request (not needed when signed in as the owner). */
+export const getConsultation = (
+  reference: string,
+  contact?: string,
+  signal?: AbortSignal
+) =>
+  api<{ consultation: PublicConsultation }>(
+    `/consultations/${encodeURIComponent(reference)}${
+      contact ? `?contact=${encodeURIComponent(contact)}` : ""
+    }`,
+    { signal }
+  );
+
+export const respondToQuotation = (
+  reference: string,
+  response: QuotationResponse,
+  contact?: string
+) =>
+  api<{ consultation: PublicConsultation }>(
+    `/consultations/${encodeURIComponent(reference)}/quotation-response`,
+    { method: "POST", body: { response, contact } }
+  );
 
 export const sendContact = (b: {
   name: string;
@@ -345,6 +392,24 @@ export const adminSetConsultationStatus = (
     }
   );
 
+
+export const adminConsultationNotes = (reference: string, signal?: AbortSignal) =>
+  api<ConsultationNote[]>(
+    `/admin/consultations/${encodeURIComponent(reference)}/notes`,
+    { signal }
+  );
+
+export const adminAddConsultationNote = (reference: string, body: string) =>
+  api<ConsultationNote>(
+    `/admin/consultations/${encodeURIComponent(reference)}/notes`,
+    { method: "POST", body: { body } }
+  );
+
+export const adminDeleteConsultationNote = (reference: string, id: number) =>
+  api<{ ok: true }>(
+    `/admin/consultations/${encodeURIComponent(reference)}/notes/${id}`,
+    { method: "DELETE" }
+  );
 
 export const adminGenerateQuotation = (
   reference: string,

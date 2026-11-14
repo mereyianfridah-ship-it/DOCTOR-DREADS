@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookingStatusInfo, consultationStatusInfo, formatCountdown, orderStatusInfo, remainingSeconds } from "../utils/status";
+import { bookingStatusInfo, consultationCustomerMessage, consultationStatusInfo, consultationStepIndex, consultationSteps, formatCountdown, orderStatusInfo, remainingSeconds } from "../utils/status";
 
 describe("hold countdown", () => {
   const now = Date.parse("2026-11-11T10:00:00.000Z");
@@ -33,5 +33,22 @@ describe("status labels", () => {
     expect(Object.keys(bookingStatusInfo).sort()).toEqual(["cancelled", "completed", "confirmed", "expired", "pending_deposit"]);
     expect(Object.keys(consultationStatusInfo).sort()).toEqual(["closed", "contacted", "new", "quoted"]);
     expect(bookingStatusInfo.pending_deposit.label).toBe("Awaiting deposit");
+  });
+});
+
+describe("consultation progress (customer view)", () => {
+  it("maps each status to a step", () => {
+    expect(consultationStepIndex("new")).toBe(0);
+    expect(consultationStepIndex("contacted")).toBe(1);
+    expect(consultationStepIndex("quoted")).toBe(2);
+  });
+  it("treats a closed request as having completed every step", () => {
+    expect(consultationStepIndex("closed")).toBe(consultationSteps.length - 1);
+  });
+  it("has customer-facing copy for every status and never promises automatic booking or payment", () => {
+    for (const s of Object.keys(consultationStatusInfo) as (keyof typeof consultationStatusInfo)[]) {
+      expect(consultationCustomerMessage[s].length).toBeGreaterThan(10);
+    }
+    expect(consultationCustomerMessage.quoted).toMatch(/nothing is booked or charged automatically/i);
   });
 });

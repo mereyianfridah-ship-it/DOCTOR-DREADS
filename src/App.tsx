@@ -14,6 +14,7 @@ import ServiceDetails from "./pages/ServiceDetails";
 import Booking from "./pages/Booking";
 import BookingStatus from "./pages/BookingStatus";
 import Consultation from "./pages/Consultation";
+import ConsultationStatus from "./pages/ConsultationStatus";
 import Shop from "./pages/Shop";
 import ProductDetails from "./pages/ProductDetails";
 import Cart from "./pages/Cart";
@@ -24,6 +25,8 @@ import Gallery from "./pages/Gallery";
 import Contact from "./pages/Contact";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Account from "./pages/Account";
 import AccountBookings from "./pages/account/AccountBookings";
 import AccountOrders from "./pages/account/AccountOrders";
@@ -60,6 +63,7 @@ export default function App() {
                 <Route path="booking" element={<Booking />} />
                 <Route path="bookings/:reference" element={<BookingStatus />} />
                 <Route path="consultation" element={<Consultation />} />
+                <Route path="consultations/:reference" element={<ConsultationStatus />} />
                 <Route path="shop" element={<Shop />} />
                 <Route path="shop/:slug" element={<ProductDetails />} />
                 <Route path="cart" element={<Cart />} />
@@ -70,6 +74,8 @@ export default function App() {
                 <Route path="contact" element={<Contact />} />
                 <Route path="login" element={<Login />} />
                 <Route path="register" element={<Register />} />
+                <Route path="forgot-password" element={<ForgotPassword />} />
+                <Route path="reset-password" element={<ResetPassword />} />
                 <Route path="account" element={<RequireAuth><Account /></RequireAuth>} />
                 <Route path="account/bookings" element={<RequireAuth><AccountBookings /></RequireAuth>} />
                 <Route path="account/orders" element={<RequireAuth><AccountOrders /></RequireAuth>} />

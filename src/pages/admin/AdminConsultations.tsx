@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { toast } from "sonner";
 import { apiBlob, errorMessage } from "../../api/client";
-import { adminConsultations, adminSetConsultationStatus } from "../../api/endpoints";
+import { adminAddConsultationNote, adminConsultationNotes, adminDeleteConsultationNote, adminConsultations, adminGenerateQuotation, adminSetConsultationStatus } from "../../api/endpoints";
 import { AdminPage, Pager, StatusSelect } from "../../components/admin/AdminUi";
 import { QueryState } from "../../components/common/QueryState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { useAsync } from "../../hooks/useAsync";
 import type { ConsultationRecord, ConsultationStatus } from "../../types";
-import { formatBytes, formatDateTime } from "../../utils/format";
+import { formatBytes, formatDateTime, formatKSh } from "../../utils/format";
+import { parseWhole } from "../../utils/numbers";
 import { consultationStatusInfo } from "../../utils/status";
 
 const PAGE = 25;
@@ -44,6 +45,133 @@ function Photo({ photo, onOpen }: { photo: ConsultationRecord["photos"][number];
   );
 }
 
+/** Price + note the customer sees on their status page. Saving also moves the request to "Quoted". */
+function QuotationBuilder({ c, disabled, onSaved }: { c: ConsultationRecord; disabled: boolean; onSaved: () => void }) {
+  const [amount, setAmount] = useState(c.quotationAmount != null ? String(c.quotationAmount) : "");
+  const [note, setNote] = useState(c.quotationNote);
+  const [saving, setSaving] = useState(false);
+  const closed = c.status === "closed";
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = parseWhole(amount);
+    if (n == null || n <= 0) return void toast.error("Enter the quoted amount as a whole number of KSh.");
+    setSaving(true);
+    try {
+      await adminGenerateQuotation(c.reference, n, note.trim());
+      toast.success(c.quotationAmount != null ? "Quotation updated." : "Quotation sent to the customer's status page.");
+      onSaved();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={save} className="mt-5 rounded-xl border border-charcoal/10 bg-cream/40 p-4" aria-label={`Quotation for ${c.reference}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold">Quotation</h3>
+        {c.quotationAmount != null && <p className="text-xs text-charcoal/60">Current: {formatKSh(c.quotationAmount)}{c.quotedAt ? ` · ${formatDateTime(c.quotedAt)}` : ""}</p>}
+      </div>
+      {c.quotationAmount != null && (
+        <p className="mt-2 text-xs" role="status">
+          {c.quotationResponse === "accepted" && <span className="font-semibold text-olive">Customer accepted{c.quotationRespondedAt ? ` · ${formatDateTime(c.quotationRespondedAt)}` : ""}. Follow up to arrange the next step.</span>}
+          {c.quotationResponse === "declined" && <span className="font-semibold text-red-800">Customer declined{c.quotationRespondedAt ? ` · ${formatDateTime(c.quotationRespondedAt)}` : ""}.</span>}
+          {!c.quotationResponse && <span className="text-charcoal/60">Awaiting the customer's response. Updating the quotation resets any response.</span>}
+        </p>
+      )}
+      <div className="mt-3 grid gap-3 sm:grid-cols-[10rem_1fr]">
+        <div>
+          <label htmlFor={`qa-${c.reference}`} className="mb-1 block text-xs text-charcoal/60">Amount (KSh)</label>
+          <input id={`qa-${c.reference}`} inputMode="numeric" className="input-base !py-2 text-sm" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={closed} />
+        </div>
+        <div>
+          <label htmlFor={`qn-${c.reference}`} className="mb-1 block text-xs text-charcoal/60">Note for the customer (optional)</label>
+          <textarea id={`qn-${c.reference}`} rows={2} maxLength={1000} className="input-base !py-2 text-sm" value={note} onChange={(e) => setNote(e.target.value)} disabled={closed} />
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={saving || disabled || closed} className="rounded-full bg-charcoal px-5 py-2 text-sm font-semibold text-offwhite transition hover:bg-brown disabled:opacity-50">
+          {saving ? "Saving…" : c.quotationAmount != null ? "Update quotation" : "Send quotation"}
+        </button>
+        {closed && <p className="text-xs text-charcoal/60">Reopen this request (change its status) to quote.</p>}
+      </div>
+    </form>
+  );
+}
+
+/** Internal staff notes. Loaded on demand; never shown to customers. */
+function NotesPanel({ reference }: { reference: string }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState<number | null>(null);
+  const { data, loading, error, reload } = useAsync(
+    (sig) => (open ? adminConsultationNotes(reference, sig) : Promise.resolve(undefined)),
+    [reference, open]
+  );
+  const notes = data ?? [];
+
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim()) return void toast.error("Write a note first.");
+    setSaving(true);
+    try {
+      await adminAddConsultationNote(reference, text.trim());
+      setText("");
+      reload();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const remove = async (id: number) => {
+    setRemoving(id);
+    try {
+      await adminDeleteConsultationNote(reference, id);
+      reload();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  return (
+    <div className="mt-4">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="text-sm font-semibold text-brown hover:underline">
+        {open ? "Hide internal notes" : "Internal notes"}
+      </button>
+      {open && (
+        <div className="mt-3 rounded-xl border border-charcoal/10 p-4">
+          <p className="text-xs text-charcoal/55">Only staff can see these. They are never shown to the customer.</p>
+          <form onSubmit={add} className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <label htmlFor={`note-${reference}`} className="sr-only">New note</label>
+            <textarea id={`note-${reference}`} rows={2} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} className="input-base !py-2 text-sm" placeholder="e.g. Called, prefers weekend appointments" />
+            <button type="submit" disabled={saving} className="self-start rounded-full bg-charcoal px-5 py-2 text-sm font-semibold text-offwhite transition hover:bg-brown disabled:opacity-50">{saving ? "Adding…" : "Add note"}</button>
+          </form>
+          {loading && <p className="mt-3 text-sm text-charcoal/60">Loading…</p>}
+          {error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}
+          {!loading && !error && notes.length === 0 && <p className="mt-3 text-sm text-charcoal/60">No notes yet.</p>}
+          <ul className="mt-3 space-y-2">
+            {notes.map((n) => (
+              <li key={n.id} className="rounded-lg bg-charcoal/5 px-3 py-2 text-sm">
+                <p className="whitespace-pre-line">{n.body}</p>
+                <p className="mt-1 flex items-center justify-between gap-3 text-xs text-charcoal/55">
+                  <span>{n.authorName} · {formatDateTime(n.createdAt)}</span>
+                  <button type="button" disabled={removing === n.id} onClick={() => void remove(n.id)} className="font-medium text-red-800 hover:underline disabled:opacity-50" aria-label={`Delete note from ${n.authorName}`}>Delete</button>
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminConsultations() {
   const [status, setStatus] = useState("");
   const [offset, setOffset] = useState(0);
@@ -75,7 +203,7 @@ export default function AdminConsultations() {
   return (
     <AdminPage
       title="Consultation requests"
-      description="Customer photos are private: they load only for signed-in admins. Quotation building, notes and stylist assignment are not available yet."
+      description="Customer photos are private: they load only for signed-in admins. Sending a quotation shows it on the customer's status page and marks the request as quoted. Internal notes are staff-only. Stylist assignment is not available yet."
       actions={<StatusSelect label="Consultation status" value={status} onChange={(v) => { setStatus(v); setOffset(0); }} options={Object.entries(consultationStatusInfo).map(([value, i]) => ({ value, label: i.label }))} />}
     >
       <QueryState loading={loading} error={error} onRetry={reload}>
@@ -104,6 +232,8 @@ export default function AdminConsultations() {
               </dl>
               {c.info && <p className="mt-3 text-sm"><span className="text-charcoal/60">Notes: </span>{c.info}</p>}
               <p className="mt-2 text-xs text-charcoal/55">Marketing consent: {c.marketingConsent ? "yes" : "no"}</p>
+              <QuotationBuilder key={`${c.reference}-${c.quotedAt ?? "none"}`} c={c} disabled={busy === c.reference} onSaved={reload} />
+              <NotesPanel reference={c.reference} />
               {c.photos.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-3">
                   {c.photos.map((p) => <Photo key={p.id} photo={p} onOpen={(url, name) => setViewer({ url, name })} />)}

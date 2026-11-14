@@ -7,6 +7,8 @@ import { optionalAuth } from "../lib/auth.js";
 import { email, fullName, phone } from "../lib/schemas.js";
 import { addDays, addMinutesToHhmm, dayOfWeek, isValidISODate, overlaps, overlapsWithDuration, plusMinutesIso, reference, todayEAT, nowIso } from "../lib/util.js";
 import { realStylists, site } from "../site.js";
+import { rescheduleEligibility } from "../lib/reschedule.js";
+import { sendMail } from "../lib/mailer.js";
 
 export const bookingsRouter = Router();
 
@@ -18,14 +20,21 @@ function checkDate(date: string) {
 }
 const isOpen = (date: string) => site.booking.openDays.includes(dayOfWeek(date));
 
-async function stylistWindows(date: string): Promise<{ stylistId: string; start: string; end: string }[]> {
-  const rows = await all<{ stylist_id: string; time: string; duration_minutes: number }>(
-    `SELECT b.stylist_id, b.time, COALESCE(b.duration_minutes, (s.duration_minutes)::integer, 60) AS duration_minutes
+interface Window { id: number; stylistId: string; start: string; duration: number }
+
+async function stylistWindows(date: string, exceptBookingId?: number): Promise<Window[]> {
+  const rows = await all<{ id: number; stylist_id: string; time: string; duration_minutes: number }>(
+    `SELECT b.id, b.stylist_id, b.time, COALESCE(b.duration_minutes, (s.duration_minutes)::integer, 60) AS duration_minutes
      FROM bookings b JOIN services s ON s.slug = b.service_slug
-     WHERE b.date=$1 AND b.status IN ('pending_deposit','confirmed')`,
-    date
+     WHERE b.date=$1 AND b.status IN ('pending_deposit','confirmed') AND ($2::int IS NULL OR b.id <> $2)`,
+    date, exceptBookingId ?? null
   );
-  return rows.map((r) => ({ stylistId: r.stylist_id, start: r.time, end: addMinutesToHhmm(r.time, r.duration_minutes) }));
+  return rows.map((r) => ({ id: r.id, stylistId: r.stylist_id, start: r.time, duration: Number(r.duration_minutes) }));
+}
+
+/** True when `stylistId` has no active booking overlapping [start, start+duration). */
+export function stylistIsFree(windows: Window[], stylistId: string, start: string, duration: number): boolean {
+  return !windows.some((w) => w.stylistId === stylistId && overlapsWithDuration(start, duration, w.start, w.duration));
 }
 
 bookingsRouter.get("/availability", async (req, res) => {
@@ -35,23 +44,13 @@ bookingsRouter.get("/availability", async (req, res) => {
   await sweepExpired();
   const open = isOpen(q.date);
   const windows = await stylistWindows(q.date);
-  const byStylist = new Map<string, { start: string; end: string }[]>();
-  for (const w of windows) {
-    const list = byStylist.get(w.stylistId) ?? [];
-    list.push(w);
-    byStylist.set(w.stylistId, list);
-  }
   const slotLength = 60;
-  const slots = await Promise.all(site.booking.slots.map(async (time) => {
-    const free = (stylistId: string) => {
-      const list = byStylist.get(stylistId) ?? [];
-      return !list.some((w) => overlapsWithDuration(time, slotLength, w.start, Number(w.end) - Number(w.start)));
-    };
+  const slots = site.booking.slots.map((time) => {
     let available: boolean;
-    if (q.stylist === "auto") available = realStylists.some((s) => free(s.id));
-    else available = free(q.stylist);
+    if (q.stylist === "auto") available = realStylists.some((s) => stylistIsFree(windows, s.id, time, slotLength));
+    else available = stylistIsFree(windows, q.stylist, time, slotLength);
     return { time, available: open && available };
-  }));
+  });
   res.json({ date: q.date, open, slots });
 });
 
@@ -69,6 +68,8 @@ const view = (b: any) => ({
   reference: b.reference, service: b.service_name ?? undefined, serviceSlug: b.service_slug, location: b.location, date: b.date, time: b.time,
   stylistId: b.stylist_id, fullName: b.full_name, phone: b.phone, email: b.email, notes: b.notes,
   depositAmount: b.deposit_amount, status: b.status, expiresAt: b.status === "pending_deposit" ? b.expires_at : null, createdAt: b.created_at,
+  rescheduleCount: Number(b.reschedule_count ?? 0),
+  ...(() => { const e = rescheduleEligibility(b, config.reschedule); return { canReschedule: e.allowed, rescheduleBlockedReason: e.reason }; })(),
 });
 export const bookingView = view;
 const SELECT = "SELECT b.*, s.name AS service_name FROM bookings b JOIN services s ON s.slug=b.service_slug";
@@ -110,13 +111,7 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
     for (const s of candidates) await t$.run("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", `booking:${b.date}`, s.id);
 
     const windows = await stylistWindows(b.date);
-    const byStylist = new Map<string, { start: string; end: string }[]>();
-    for (const w of windows) {
-      const list = byStylist.get(w.stylistId) ?? [];
-      list.push(w);
-      byStylist.set(w.stylistId, list);
-    }
-    const free = (stylistId: string) => !(byStylist.get(stylistId) ?? []).some((w) => overlapsWithDuration(start, durationMinutes, w.start, Number(w.end) - Number(w.start)));
+    const free = (stylistId: string) => stylistIsFree(windows, stylistId, start, durationMinutes);
 
     let stylist: string | undefined;
     for (const s of candidates) {
@@ -156,4 +151,65 @@ bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, asyncHandler(as
   });
 
   res.json({ booking: view(await get(`${SELECT} WHERE b.id=$1`, b.id)), note: b.status === "confirmed" ? "Deposit refunds are handled by the salon." : undefined });
+}));
+
+const rescheduleSchema = z.object({
+  email: z.string().optional(),
+  date: z.string(),
+  time: z.string(),
+  /** "same" keeps the current stylist, "auto" takes whoever is free, or a stylist id. */
+  stylist: z.string().default("same"),
+});
+
+bookingsRouter.post("/bookings/:reference/reschedule", optionalAuth, asyncHandler(async (req, res) => {
+  const body = rescheduleSchema.parse(req.body);
+  const found = await findBooking(String(req.params.reference), req, body.email);
+
+  checkDate(body.date);
+  if (!isOpen(body.date)) throw new HttpError(400, "The salon is closed on that day", { date: "Closed on this day" });
+  if (!site.booking.slots.includes(body.time)) throw new HttpError(400, "Invalid time slot", { time: "Invalid time slot" });
+  if (!["same", "auto"].includes(body.stylist) && !realStylists.some((s) => s.id === body.stylist)) throw new HttpError(400, "Unknown stylist", { stylist: "Unknown stylist" });
+
+  await sweepExpired();
+  let previous = "";
+  try {
+    await tx(async (t$) => {
+      const cur = await t$.get<any>("SELECT * FROM bookings WHERE id=$1 FOR UPDATE", found.id);
+      if (!cur) throw notFound("Booking");
+      const eligibility = rescheduleEligibility(cur, config.reschedule);
+      if (!eligibility.allowed) throw new HttpError(409, eligibility.reason ?? "This booking can't be rescheduled");
+
+      const candidates = body.stylist === "same" ? [cur.stylist_id] : body.stylist === "auto" ? realStylists.map((s) => s.id) : [body.stylist];
+      if (cur.date === body.date && cur.time === body.time && candidates.includes(cur.stylist_id))
+        throw new HttpError(400, "That is your current appointment time", { time: "Choose a different time" });
+
+      // Same lock the booking flow takes, so a reschedule and a new booking can't both claim a slot.
+      for (const id of candidates) await t$.run("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", `booking:${body.date}`, id);
+      const windows = await stylistWindows(body.date, cur.id); // ignore this booking's own old slot
+      const duration = Number(cur.duration_minutes ?? 60);
+      const stylist = candidates.find((id) => stylistIsFree(windows, id, body.time, duration));
+      if (!stylist) throw new HttpError(409, "That time isn't available: please choose another slot", { time: "Slot unavailable" });
+
+      previous = `${cur.date} ${cur.time}`;
+      await t$.run(
+        "UPDATE bookings SET date=$1, time=$2, stylist_id=$3, reschedule_count=reschedule_count+1, rescheduled_from=$4, rescheduled_at=$5 WHERE id=$6",
+        body.date, body.time, stylist, previous, nowIso(), cur.id,
+      );
+    });
+  } catch (e: any) {
+    // The unique index is the last line of defence against a double booking.
+    if (e?.code === "23505") throw new HttpError(409, "That time was just taken: please choose another slot", { time: "Slot unavailable" });
+    throw e;
+  }
+
+  const updated = await get<any>(`${SELECT} WHERE b.id=$1`, found.id);
+  void sendMail({
+    to: updated.email,
+    subject: `Your Dr Dread Kenya appointment ${updated.reference} was rescheduled`,
+    text: `Hi ${String(updated.full_name).split(" ")[0]},\n\nYour appointment (${updated.service_name}) has moved from ${previous} to ${updated.date} at ${updated.time}.\n\nReference: ${updated.reference}\nIf you didn't make this change, please contact the salon straight away.`,
+  }).catch(() => undefined);
+  res.json({
+    booking: view(updated),
+    note: updated.status === "pending_deposit" ? "Your hold time has not been extended: the deposit is still needed before it ends." : undefined,
+  });
 }));

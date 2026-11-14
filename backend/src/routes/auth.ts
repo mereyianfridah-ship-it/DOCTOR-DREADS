@@ -1,9 +1,10 @@
+import { createHash, randomBytes } from "node:crypto";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { config } from "../config.js";
-import { get, run } from "../db.js";
+import { get, run, tx } from "../db.js";
 import { asyncHandler, HttpError } from "../lib/errors.js";
 import {
   signToken,
@@ -12,7 +13,8 @@ import {
   authFromCookie,
 } from "../lib/cookie-auth.js";
 import { email, fullName, password, phone } from "../lib/schemas.js";
-import { nowIso } from "../lib/util.js";
+import { nowIso, plusMinutesIso } from "../lib/util.js";
+import { sendMail } from "../lib/mailer.js";
 
 export const authRouter = Router();
 
@@ -178,3 +180,51 @@ authRouter.post(
     res.json({ ok: true });
   }),
 );
+
+/* ---------------- password reset ---------------- */
+
+const sha256 = (v: string) => createHash("sha256").update(v).digest("hex");
+const GENERIC_FORGOT = "If an account exists for that email, we've sent a link to reset the password. It expires soon and works once.";
+/** Max reset emails per account per hour: stops someone using the form to spam a customer's inbox. */
+const MAX_RESETS_PER_HOUR = 3;
+
+async function issueResetLink(emailAddr: string): Promise<void> {
+  const user = await get<any>("SELECT id, full_name, email FROM users WHERE email=$1", emailAddr);
+  if (!user) return;
+  const recent = await get<{ n: string }>("SELECT COUNT(*) AS n FROM password_reset_tokens WHERE user_id=$1 AND created_at > $2", user.id, new Date(Date.now() - 3600_000).toISOString());
+  if (Number(recent?.n ?? 0) >= MAX_RESETS_PER_HOUR) return;
+  const token = randomBytes(32).toString("hex");
+  await tx(async (t$) => {
+    await t$.run("UPDATE password_reset_tokens SET used_at=$1 WHERE user_id=$2 AND used_at IS NULL", nowIso(), user.id); // only the newest link works
+    await t$.run("INSERT INTO password_reset_tokens (user_id,token_hash,expires_at,created_at) VALUES ($1,$2,$3,$4)", user.id, sha256(token), plusMinutesIso(config.passwordResetMinutes), nowIso());
+  });
+  const link = `${config.appUrl}/reset-password?token=${token}`;
+  await sendMail({
+    to: user.email,
+    subject: "Reset your Dr Dread Kenya password",
+    text: `Hi ${String(user.full_name).split(" ")[0]},\n\nUse this link to choose a new password. It works once and expires in ${config.passwordResetMinutes} minutes:\n\n${link}\n\nIf you didn't ask for this, you can ignore this email; your password hasn't changed.`,
+  });
+}
+
+authRouter.post("/forgot-password", limiter, asyncHandler(async (req, res) => {
+  const { email: addr } = z.object({ email }).parse(req.body);
+  // The answer is identical whether or not the account exists, and the work runs after responding,
+  // so neither the message nor the response time reveals which emails are registered.
+  const job = issueResetLink(addr).catch((e) => console.error("[forgot-password]", e instanceof Error ? e.message : e));
+  if (config.isTest) await job;
+  res.json({ ok: true, message: GENERIC_FORGOT });
+}));
+
+authRouter.post("/reset-password", limiter, asyncHandler(async (req, res) => {
+  const body = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/, "This reset link is invalid or has expired"), password }).parse(req.body);
+  const invalid = () => new HttpError(400, "This reset link is invalid or has expired. Please request a new one.");
+  const hash = await bcrypt.hash(body.password, config.bcryptCost);
+  await tx(async (t$) => {
+    // Claim the token atomically: a concurrent second use finds used_at already set.
+    const claimed = await t$.get<{ user_id: number }>("UPDATE password_reset_tokens SET used_at=$1 WHERE token_hash=$2 AND used_at IS NULL AND expires_at > $1 RETURNING user_id", nowIso(), sha256(body.token));
+    if (!claimed) throw invalid();
+    await t$.run("UPDATE users SET password_hash=$1, password_changed_at=$2 WHERE id=$3", hash, nowIso(), claimed.user_id);
+    await t$.run("UPDATE password_reset_tokens SET used_at=$1 WHERE user_id=$2 AND used_at IS NULL", nowIso(), claimed.user_id);
+  });
+  res.json({ ok: true });
+}));
