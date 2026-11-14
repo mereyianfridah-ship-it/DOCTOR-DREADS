@@ -29,7 +29,7 @@ function ServiceView({ slug }: { slug: string }) {
 
   const [imgFailed, setImgFailed] = useState(false);
   const showPlaceholder = !service.image || imgFailed;
-  const placeholder = serviceImage(Math.floor(Math.random() * 10000));
+  const placeholder = serviceImage(service.slug);
 
   return (
     <>

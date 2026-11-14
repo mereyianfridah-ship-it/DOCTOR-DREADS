@@ -9,7 +9,7 @@ export function ServiceCard({ service, showDuration = false }: { service: Servic
   const consultation = service.bookingType === "consultation";
   const [imgFailed, setImgFailed] = useState(false);
   const showPlaceholder = !service.image || imgFailed;
-  const placeholder = serviceImage(Math.floor(Math.random() * 10000));
+  const placeholder = serviceImage(service.slug);
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-charcoal/10 bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl">
       <div className="relative aspect-[4/5] overflow-hidden bg-cream">
