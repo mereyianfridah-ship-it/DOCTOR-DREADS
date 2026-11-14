@@ -79,3 +79,21 @@ Done (code only; NOT built or tested here, no network): see FIX_REPORT.md for th
 - `ProductImage` fallback component; alt-text cleanup; placeholder contact/social details hidden until real data exists.
 - Cookie SameSite configurable; Origin (CSRF) check; unified auth module; prod env validation.
 Still blocked on the owner: real contact details, stylists, service prices/durations, real products/gallery photos, legal text.
+
+## Feature round: reviews + appointment reminders (2026-11-15)
+**Verification: NOT built, NOT run against a database.** The sandbox had no network or PostgreSQL. What was checked: a filtered `tsc` pass over the edited files (no errors besides ones caused by missing packages), and the pure reminder rules and email text, run with Node. The new database tests in `backend/tests/api.test.ts` (customer reviews, appointment reminders) and `backend/tests/reminders.test.ts` have not been run.
+
+1. **Customer reviews with admin approval.** Migration `015_testimonial_moderation.sql` adds `status`, `rating`, `email`, `created_at`, `reviewed_at` to `testimonials` (existing rows stay `approved`). `POST /api/testimonials` (rate-limited, honeypot, max 3 pending per email) stores a `pending` review; `GET /api/testimonials` returns approved ones only, without the email. Admin: `GET/PATCH/DELETE /api/admin/testimonials`, a Reviews page in the admin, and a "Reviews awaiting approval" count on the overview. Home page: "Share your experience" form with star rating (the section now shows even when there are no reviews yet, so the first ones can be collected).
+2. **Appointment reminder emails.** Migration `016_booking_reminders.sql` adds `bookings.reminder_sent_at`. `backend/src/lib/reminders.ts` emails each *confirmed* booking once, when it is within `REMINDER_HOURS_BEFORE` (default 24) of its start (East Africa Time). Runs every `REMINDER_INTERVAL_MINUTES` (default 10) from `server.ts`. The booking is claimed with a conditional UPDATE before sending (no double sends); the claim is released if the send fails. Nothing is claimed or sent unless `RESEND_API_KEY` and `MAIL_FROM` are set. `REMINDERS_ENABLED=false` turns it off.
+
+Known limits: a permanently bad email address is retried every interval until the appointment starts; reminders go to confirmed bookings only (confirmation currently needs a verified deposit payment, and payments are postponed); the reminder text says to contact the salon but carries no phone number until real contact details are in `src/config/site.ts` / `backend/seed/site.json`.
+
+## Feature: image uploads and hero photo (2026-11-15)
+**Verification: NOT built, NOT run against a database or Cloudinary.** Checked: a filtered `tsc` pass (only an error caused by missing React types) and the new frontend helper (`src/utils/cloudinary.ts`) run with Node. The new backend tests (`site images (hero etc.) and service photos` in `backend/tests/api.test.ts`) and `src/tests/cloudinary.test.ts` have not been run.
+
+- **Admin > Images** (new page) lets the owner change website photos without a developer: hero, two welcome photos, About photo and the booking banner (slots in `src/config/siteImages.ts` / `backend/src/lib/siteImages.ts`), every service's photo, and the gallery (add with title + category, delete). Product photos stay on the Products page.
+- Backend: migration `017_site_images.sql` (table `site_images`; `media_assets.kind` now also allows `site` and `service`). `GET /api/site-images` (public), `PUT/DELETE /api/uploads/site-images/:slot`, `PUT /api/uploads/services/:slug`. Same safety as product uploads: admin only, JPG/PNG/WebP, magic-byte check, 10 MB, new file removed from Cloudinary if the database write fails, old file removed only after the commit.
+- Public pages read the slots through one shared request (`useSiteImages`) and show a plain block until it answers, so the default image never flashes before the real one. Uploaded photos are served through Cloudinary `f_auto,q_auto,w_N` (`optimizedUrl`) so a 5-10 MB phone photo doesn't slow the hero.
+- Needs `CLOUDINARY_URL` set on the server (uploads return 503 without it). Alt text is saved with each upload and is only offered for non-decorative slots (hero and booking banner are decorative backgrounds).
+- Not included: before/after pairs for gallery items, cropping, drag-to-reorder gallery, videos.
+

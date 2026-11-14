@@ -38,6 +38,17 @@ export interface Testimonial {
   name: string;
   detail: string;
   quote: string;
+  /** 1-5, absent on reviews the owner added by hand. */
+  rating?: number | null;
+}
+
+export type ReviewStatus = "pending" | "approved" | "rejected";
+
+export interface ReviewRecord extends Testimonial {
+  email: string | null;
+  status: ReviewStatus;
+  created_at: string | null;
+  reviewed_at: string | null;
 }
 
 export interface GalleryItem {
@@ -202,6 +213,7 @@ export interface AdminSummary {
   ordersToFulfil: number;
   newConsultations: number;
   unreadMessages: number;
+  pendingReviews: number;
   paymentsNeedingReview: number;
   revenue: number;
 }

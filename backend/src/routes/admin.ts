@@ -20,6 +20,7 @@ adminRouter.get("/admin/summary", async (_req, res) => res.json({
   ordersToFulfil: (await get<any>("SELECT COUNT(*) AS n FROM orders WHERE status IN ('paid','processing')"))!.n,
   newConsultations: (await get<any>("SELECT COUNT(*) AS n FROM consultations WHERE status='new'"))!.n,
   unreadMessages: (await get<any>("SELECT COUNT(*) AS n FROM contact_messages WHERE handled=0"))!.n,
+  pendingReviews: (await get<any>("SELECT COUNT(*) AS n FROM testimonials WHERE status='pending'"))!.n,
   paymentsNeedingReview: (await get<any>("SELECT COUNT(*) AS n FROM payments WHERE needs_review=1"))!.n,
   revenue: (await get<any>("SELECT COALESCE(SUM(amount),0) AS n FROM payments WHERE status='succeeded'"))!.n,
 }));
@@ -165,6 +166,28 @@ adminRouter.patch("/admin/messages/:id", async (req, res) => {
   if (r.rowCount === 0) throw notFound("Message");
   res.json({ ok: true });
 });
+
+adminRouter.get("/admin/testimonials", async (req, res) => {
+  const s = status(req.query.status), { limit, offset } = page(req.query);
+  if (s && !["pending", "approved", "rejected"].includes(s)) throw new HttpError(400, "Unknown status");
+  res.json(await all(
+    "SELECT id,name,detail,quote,rating,email,status,created_at,reviewed_at FROM testimonials WHERE ($1::text IS NULL OR status=$2) ORDER BY (status='pending') DESC, created_at DESC NULLS LAST, id LIMIT $3 OFFSET $4",
+    s, s, limit, offset,
+  ));
+});
+
+adminRouter.patch("/admin/testimonials/:id", asyncHandler(async (req, res) => {
+  const { status: next } = z.object({ status: z.enum(["pending", "approved", "rejected"]) }).parse(req.body);
+  const r = await run("UPDATE testimonials SET status=$1, reviewed_at=$2 WHERE id=$3", next, nowIso(), req.params.id);
+  if (r.rowCount === 0) throw notFound("Review");
+  res.json({ ok: true });
+}));
+
+adminRouter.delete("/admin/testimonials/:id", asyncHandler(async (req, res) => {
+  const r = await run("DELETE FROM testimonials WHERE id=$1", req.params.id);
+  if (r.rowCount === 0) throw notFound("Review");
+  res.json({ ok: true });
+}));
 
 adminRouter.get("/admin/payments", async (req, res) => {
   const { limit, offset } = page(req.query);

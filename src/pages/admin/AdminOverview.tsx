@@ -14,6 +14,7 @@ export default function AdminOverview() {
         { label: "Orders to fulfil", value: data.ordersToFulfil, to: "/admin/orders" },
         { label: "New consultations", value: data.newConsultations, to: "/admin/consultations" },
         { label: "Unhandled messages", value: data.unreadMessages, to: "/admin/messages" },
+        { label: "Reviews awaiting approval", value: data.pendingReviews, to: "/admin/reviews" },
         { label: "Payments needing review", value: data.paymentsNeedingReview, to: "/admin/payments" },
       ]
     : [];

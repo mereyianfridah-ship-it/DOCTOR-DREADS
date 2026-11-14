@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { CalendarDays, CreditCard, Inbox, LayoutDashboard, MessageSquare, Package, Scissors, ShoppingBag, Tag, Users, Video } from "lucide-react";
+import { CalendarDays, CreditCard, Inbox, LayoutDashboard, MessageSquare, Image as ImageIcon, Package, Star, Scissors, ShoppingBag, Tag, Users, Video } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 const items = [
@@ -8,7 +8,9 @@ const items = [
   { to: "/admin/orders", label: "Orders", icon: ShoppingBag, end: false },
   { to: "/admin/consultations", label: "Consultations", icon: Inbox, end: false },
   { to: "/admin/messages", label: "Messages", icon: MessageSquare, end: false },
+  { to: "/admin/reviews", label: "Reviews", icon: Star, end: false },
   { to: "/admin/payments", label: "Payments", icon: CreditCard, end: false },
+  { to: "/admin/images", label: "Images", icon: ImageIcon, end: false },
   { to: "/admin/products", label: "Products", icon: Package, end: false },
   { to: "/admin/services", label: "Services", icon: Scissors, end: false },
   { to: "/admin/customers", label: "Customers", icon: Users, end: false },

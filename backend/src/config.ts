@@ -54,6 +54,12 @@ export const config = {
   appUrl: (env.APP_URL ?? (env.CORS_ORIGINS ?? "http://localhost:5173").split(",")[0] ?? "").trim().replace(/\/+$/, ""),
   /** Transactional email via Resend (https://resend.com). Without these, emails are only logged in development. */
   mail: { resendApiKey: env.RESEND_API_KEY ?? "", from: env.MAIL_FROM ?? "" },
+  /** Appointment reminder emails. They only go out when email is configured (RESEND_API_KEY + MAIL_FROM). */
+  reminders: {
+    enabled: env.REMINDERS_ENABLED !== "false",
+    hoursBefore: Math.max(1, Number(env.REMINDER_HOURS_BEFORE ?? 24) || 24),
+    intervalMinutes: Math.max(1, Number(env.REMINDER_INTERVAL_MINUTES ?? 10) || 10),
+  },
   passwordResetMinutes: Number(env.PASSWORD_RESET_MINUTES ?? 60),
   adminEmail: env.ADMIN_EMAIL ?? "",
   adminPassword: env.ADMIN_PASSWORD ?? "",

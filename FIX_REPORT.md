@@ -42,3 +42,10 @@ Housekeeping
 - Run once: `PEXELS_API_KEY=xxxx npm run photos`, then commit `public/images/photos/`. Missing files fall back to the SVG placeholder.
 - IntroSection, About and TestimonialCard now use `PreviewImage` so they also fall back safely.
 - NOT verified: no network in the sandbox, so the script and the build were not run.
+
+## Round 3: two new features (2026-11-15)
+See "Feature round: reviews + appointment reminders" in IMPLEMENTATION_STATUS.md. New migrations: 015, 016. New env vars (all optional): `REMINDERS_ENABLED`, `REMINDER_HOURS_BEFORE`, `REMINDER_INTERVAL_MINUTES`. Not built, not run against a database.
+
+## Round 4: image uploads and hero photo (2026-11-15)
+See "Feature: image uploads and hero photo" in IMPLEMENTATION_STATUS.md. New migration: 017. Not built, not run against a database or Cloudinary.
+

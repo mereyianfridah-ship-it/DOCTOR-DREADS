@@ -7,6 +7,7 @@ import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { requireAdmin } from "../lib/auth.js";
 import { destroyImage, isCloudinaryConfigured, uploadImage, privateImageUrl } from "../lib/cloudinary.js";
 import { nowIso, reference, sniffBuffer } from "../lib/util.js";
+import { isSiteImageSlot } from "../lib/siteImages.js";
 
 export const uploadsRouter = Router();
 // Scoped to /uploads so this router never intercepts public routes or the /api 404 handler.
@@ -146,6 +147,102 @@ uploadsRouter.delete(
     // Remote cleanup happens after the DB commit; a Cloudinary hiccup must not undo the user's delete.
     if (publicId) await destroyImage(publicId, { access: "public" }).catch((err) => console.error("Cloudinary delete failed", err));
     res.json({ ok: true, images: next });
+  })
+);
+
+/** Throws unless the uploaded file's real contents match its declared JPG/PNG/WebP type. */
+function requireImage(file: Express.Multer.File | undefined): Express.Multer.File {
+  if (!file) throw new HttpError(400, "A photo file is required");
+  const actual = sniffBuffer(file.buffer);
+  if (!actual || actual !== file.mimetype) throw new HttpError(400, `${file.originalname}: contents do not match a JPG/PNG/WebP image`);
+  return file;
+}
+
+/**
+ * Replace the image in a site slot (hero, welcome photos, about, call-to-action background).
+ * The new file is stored first; the previous upload is deleted from Cloudinary only after the database commit.
+ */
+uploadsRouter.put(
+  "/uploads/site-images/:slot",
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    const slot = String(req.params.slot);
+    if (!isSiteImageSlot(slot)) throw notFound("Image slot");
+    const file = requireImage(req.file);
+    const { alt } = z.object({ alt: z.string().trim().max(160).default("") }).parse(req.body);
+
+    const { publicId, secureUrl, mime, bytes, width, height } = await uploadImage(file.buffer, { folder: "drdread/site", access: "public" });
+    let previousPublicId: string | null = null;
+    try {
+      await tx(async (t$) => {
+        const prev = await t$.get<any>("SELECT public_id FROM site_images WHERE slot=$1", slot);
+        previousPublicId = prev?.public_id ?? null;
+        await t$.run(
+          "INSERT INTO site_images (slot,url,public_id,alt,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (slot) DO UPDATE SET url=EXCLUDED.url, public_id=EXCLUDED.public_id, alt=EXCLUDED.alt, updated_at=EXCLUDED.updated_at",
+          slot, secureUrl, publicId, alt, nowIso(),
+        );
+        await t$.run(
+          "INSERT INTO media_assets (id,kind,public_id,secure_url,mime,bytes,width,height,folder,created_at) VALUES ($1,'site',$2,$3,$4,$5,$6,$7,$8,$9)",
+          reference("MA"), publicId, secureUrl, mime, bytes, width ?? null, height ?? null, "drdread/site", nowIso(),
+        );
+        if (previousPublicId) await t$.run("DELETE FROM media_assets WHERE public_id=$1", previousPublicId);
+      });
+    } catch (e) {
+      await destroyImage(publicId, { access: "public" }).catch((err) => console.error("Cloudinary cleanup failed", err));
+      throw e;
+    }
+    if (previousPublicId) await destroyImage(previousPublicId, { access: "public" }).catch((err) => console.error("Cloudinary delete failed", err));
+    res.json({ slot, url: secureUrl, alt });
+  })
+);
+
+/** Reset a slot to the bundled default image. */
+uploadsRouter.delete(
+  "/uploads/site-images/:slot",
+  asyncHandler(async (req, res) => {
+    const slot = String(req.params.slot);
+    if (!isSiteImageSlot(slot)) throw notFound("Image slot");
+    let publicId: string | null = null;
+    await tx(async (t$) => {
+      const row = await t$.get<any>("SELECT public_id FROM site_images WHERE slot=$1", slot);
+      if (!row) return;
+      publicId = row.public_id ?? null;
+      await t$.run("DELETE FROM site_images WHERE slot=$1", slot);
+      if (publicId) await t$.run("DELETE FROM media_assets WHERE public_id=$1", publicId);
+    });
+    if (publicId) await destroyImage(publicId, { access: "public" }).catch((err) => console.error("Cloudinary delete failed", err));
+    res.json({ ok: true });
+  })
+);
+
+/** Replace a service's photo. */
+uploadsRouter.put(
+  "/uploads/services/:slug",
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    const file = requireImage(req.file);
+    const service = await get<any>("SELECT slug, image FROM services WHERE slug=$1", req.params.slug);
+    if (!service) throw notFound("Service");
+
+    const { publicId, secureUrl, mime, bytes, width, height } = await uploadImage(file.buffer, { folder: "drdread/services", access: "public" });
+    let previousPublicId: string | null = null;
+    try {
+      await tx(async (t$) => {
+        const prev = await t$.get<any>("SELECT public_id FROM media_assets WHERE kind='service' AND secure_url=$1", service.image);
+        previousPublicId = prev?.public_id ?? null;
+        await t$.run("UPDATE services SET image=$1 WHERE slug=$2", secureUrl, service.slug);
+        await t$.run(
+          "INSERT INTO media_assets (id,kind,public_id,secure_url,mime,bytes,width,height,folder,created_at) VALUES ($1,'service',$2,$3,$4,$5,$6,$7,$8,$9)",
+          reference("MA"), publicId, secureUrl, mime, bytes, width ?? null, height ?? null, "drdread/services", nowIso(),
+        );
+        if (previousPublicId) await t$.run("DELETE FROM media_assets WHERE public_id=$1", previousPublicId);
+      });
+    } catch (e) {
+      await destroyImage(publicId, { access: "public" }).catch((err) => console.error("Cloudinary cleanup failed", err));
+      throw e;
+    }
+    if (previousPublicId) await destroyImage(previousPublicId, { access: "public" }).catch((err) => console.error("Cloudinary delete failed", err));
+    res.json({ slug: service.slug, image: secureUrl });
   })
 );
 

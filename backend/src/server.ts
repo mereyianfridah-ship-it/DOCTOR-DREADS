@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { get, run, initDb, seedIfEmpty, sweepExpired, pool } from "./db.js";
 import { createApp } from "./app.js";
 import { nowIso } from "./lib/util.js";
+import { sendDueReminders } from "./lib/reminders.js";
 
 let server: any;
 
@@ -26,6 +27,14 @@ async function bootstrap() {
   );
 
   setInterval(() => sweepExpired().catch(console.error), 60_000).unref();
+
+  if (config.reminders.enabled) {
+    const tick = () => sendDueReminders()
+      .then((r) => { if (r.sent || r.failed) console.log(`[reminders] sent ${r.sent}, failed ${r.failed}`); })
+      .catch((e) => console.error("[reminders]", e instanceof Error ? e.message : e));
+    setTimeout(tick, 30_000).unref();
+    setInterval(tick, config.reminders.intervalMinutes * 60_000).unref();
+  }
 
   const shutdown = (signal: string) => {
     console.log(`Received ${signal}: shutting down gracefully`);

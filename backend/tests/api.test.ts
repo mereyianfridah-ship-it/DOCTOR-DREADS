@@ -5,6 +5,8 @@ import { createApp } from "../src/app.js";
 import { get, run, initDb, seedIfEmpty } from "../src/db.js";
 import { addDays, todayEAT } from "../src/lib/util.js";
 import { testOutbox } from "../src/lib/mailer.js";
+import { sendDueReminders } from "../src/lib/reminders.js";
+import { appointmentStartMs } from "../src/lib/reschedule.js";
 
 // Never hit the real Cloudinary in tests.
 vi.mock("../src/lib/cloudinary.js", () => ({
@@ -720,5 +722,138 @@ describe("product admin + image uploads", () => {
   it("keeps public routes reachable for anonymous visitors (upload guard is scoped)", async () => {
     expect((await api().get("/api/tiktok/public")).status).toBe(200);
     expect((await api().get("/api/nope")).status).toBe(404);
+  });
+});
+
+describe("customer reviews", () => {
+  let admin: Record<string, string> = {};
+  const review = { name: "Wanjiru K", email: "wanjiru@example.com", detail: "Loc retouching", rating: 5, quote: "Lovely, careful work and a calm salon. Highly recommend." };
+  beforeAll(async () => {
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    admin = { Authorization: `Bearer ${tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }))}` };
+    await run("DELETE FROM testimonials");
+  });
+
+  it("validates input", async () => {
+    for (const bad of [{ ...review, rating: 0 }, { ...review, rating: 6 }, { ...review, quote: "too short" }, { ...review, email: "nope" }, { ...review, name: "" }])
+      expect((await api().post("/api/testimonials").send(bad)).status).toBe(400);
+  });
+  it("keeps a new review hidden until an admin approves it, and never exposes the email", async () => {
+    expect((await api().post("/api/testimonials").send(review)).status).toBe(201);
+    expect((await api().get("/api/testimonials")).body).toHaveLength(0);
+
+    const pending = (await api().get("/api/admin/testimonials?status=pending").set(admin)).body;
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ name: "Wanjiru K", rating: 5, status: "pending", email: "wanjiru@example.com" });
+    expect((await api().get("/api/admin/testimonials")).status).toBe(401);
+    expect((await api().get("/api/admin/summary").set(admin)).body.pendingReviews).toBe(1);
+
+    expect((await api().patch(`/api/admin/testimonials/${pending[0].id}`).set(admin).send({ status: "approved" })).status).toBe(200);
+    const pub = (await api().get("/api/testimonials")).body;
+    expect(pub).toHaveLength(1);
+    expect(pub[0]).toMatchObject({ name: "Wanjiru K", rating: 5 });
+    expect(pub[0]).not.toHaveProperty("email");
+
+    expect((await api().patch(`/api/admin/testimonials/${pending[0].id}`).set(admin).send({ status: "rejected" })).status).toBe(200);
+    expect((await api().get("/api/testimonials")).body).toHaveLength(0);
+  });
+  it("ignores honeypot submissions, caps pending reviews per email, and handles bad ids", async () => {
+    const before = (await api().get("/api/admin/testimonials").set(admin)).body.length;
+    expect((await api().post("/api/testimonials").send({ ...review, email: "bot@example.com", website: "http://spam" })).status).toBe(201);
+    expect((await api().get("/api/admin/testimonials").set(admin)).body.length).toBe(before);
+
+    for (let i = 0; i < 3; i++) expect((await api().post("/api/testimonials").send({ ...review, email: "many@example.com" })).status).toBe(201);
+    expect((await api().post("/api/testimonials").send({ ...review, email: "many@example.com" })).status).toBe(429);
+
+    expect((await api().patch("/api/admin/testimonials/nope").set(admin).send({ status: "approved" })).status).toBe(404);
+    expect((await api().patch("/api/admin/testimonials/nope").set(admin).send({ status: "weird" })).status).toBe(400);
+    expect((await api().delete("/api/admin/testimonials/nope").set(admin)).status).toBe(404);
+    const any = (await api().get("/api/admin/testimonials").set(admin)).body[0];
+    expect((await api().delete(`/api/admin/testimonials/${any.id}`).set(admin)).status).toBe(200);
+  });
+});
+
+describe("appointment reminders", () => {
+  const date = openDate(4);
+  const start = appointmentStartMs(date, "10:00");
+  const mk = async (status: string, email: string) => {
+    const r = await api().post("/api/bookings").send({ serviceSlug: "loc-retouching", location: "salon", date, time: "10:00", stylist: "auto", fullName: "Remind Me", phone: "0700333444", email, notes: "" });
+    expect(r.status).toBe(201);
+    await run("UPDATE bookings SET status=$1, expires_at=NULL WHERE reference=$2", status, r.body.booking.reference);
+    return r.body.booking.reference as string;
+  };
+
+  it("emails a confirmed booking once, when inside the window, and ignores the rest", async () => {
+    const confirmed = await mk("confirmed", "remind1@example.com");
+    const pendingRef = await mk("pending_deposit", "remind2@example.com");
+    const sentTo = () => testOutbox.filter((m) => m.subject.startsWith("Reminder:")).map((m) => m.to);
+
+    expect((await sendDueReminders(start - 48 * 3600_000)).sent).toBe(0); // too early
+    expect(sentTo()).not.toContain("remind1@example.com");
+
+    const first = await sendDueReminders(start - 5 * 3600_000);
+    expect(first.sent).toBeGreaterThanOrEqual(1);
+    expect(sentTo()).toContain("remind1@example.com");
+    expect(sentTo()).not.toContain("remind2@example.com"); // not confirmed
+    expect((await get<any>("SELECT reminder_sent_at FROM bookings WHERE reference=$1", confirmed))!.reminder_sent_at).toBeTruthy();
+    expect((await get<any>("SELECT reminder_sent_at FROM bookings WHERE reference=$1", pendingRef))!.reminder_sent_at).toBeNull();
+
+    const again = testOutbox.length;
+    expect((await sendDueReminders(start - 4 * 3600_000)).sent).toBe(0); // already reminded
+    expect(testOutbox.length).toBe(again);
+  });
+});
+
+describe("site images (hero etc.) and service photos", () => {
+  let auth: { Authorization: string };
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(32)]);
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]);
+  const put = (url: string, buf: Buffer, name: string, type: string, alt?: string) => {
+    let r = api().put(url).set(auth).attach("file", buf, { filename: name, contentType: type });
+    if (alt !== undefined) r = r.field("alt", alt);
+    return r;
+  };
+
+  beforeAll(async () => {
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    auth = { Authorization: `Bearer ${tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }))}` };
+    await run("DELETE FROM site_images");
+  });
+
+  it("has no overrides until an admin uploads one", async () => {
+    expect((await api().get("/api/site-images")).body).toEqual({});
+  });
+  it("requires an admin", async () => {
+    expect((await api().put("/api/uploads/site-images/hero").attach("file", jpeg, { filename: "a.jpg", contentType: "image/jpeg" })).status).toBe(401);
+  });
+  it("sets and replaces the hero image, and serves it publicly", async () => {
+    const a = await put("/api/uploads/site-images/hero", jpeg, "hero.jpg", "image/jpeg", "Salon front");
+    expect(a.status).toBe(200);
+    expect(a.body).toMatchObject({ slot: "hero", alt: "Salon front" });
+    expect((await api().get("/api/site-images")).body.hero).toMatchObject({ url: "https://res.cloudinary.test/image.jpg", alt: "Salon front" });
+
+    const b = await put("/api/uploads/site-images/hero", png, "hero2.png", "image/png");
+    expect(b.status).toBe(200);
+    expect((await get<any>("SELECT COUNT(*) AS n FROM site_images WHERE slot='hero'"))!.n).toBe("1"); // replaced, not duplicated
+    expect((await get<any>("SELECT COUNT(*) AS n FROM media_assets WHERE kind='site'"))!.n).toBe("1"); // old asset record dropped
+  });
+  it("rejects unknown slots, fake images, wrong types and missing files", async () => {
+    expect((await put("/api/uploads/site-images/footer", jpeg, "a.jpg", "image/jpeg")).status).toBe(404);
+    expect((await put("/api/uploads/site-images/hero", Buffer.from("<?php evil ?>"), "x.jpg", "image/jpeg")).status).toBe(400);
+    expect((await put("/api/uploads/site-images/hero", jpeg, "a.gif", "image/gif")).status).toBe(400);
+    expect((await api().put("/api/uploads/site-images/hero").set(auth)).status).toBe(400);
+  });
+  it("resets a slot to the default", async () => {
+    expect((await api().delete("/api/uploads/site-images/hero").set(auth)).status).toBe(200);
+    expect((await api().get("/api/site-images")).body.hero).toBeUndefined();
+    expect((await api().delete("/api/uploads/site-images/hero").set(auth)).status).toBe(200); // already default: still fine
+    expect((await api().delete("/api/uploads/site-images/footer").set(auth)).status).toBe(404);
+  });
+  it("replaces a service photo", async () => {
+    const slug = (await api().get("/api/services")).body[0].slug;
+    const r = await put(`/api/uploads/services/${slug}`, jpeg, "s.jpg", "image/jpeg");
+    expect(r.status).toBe(200);
+    expect((await api().get(`/api/services/${slug}`)).body.image).toBe("https://res.cloudinary.test/image.jpg");
+    expect((await put("/api/uploads/services/nope", jpeg, "s.jpg", "image/jpeg")).status).toBe(404);
   });
 });

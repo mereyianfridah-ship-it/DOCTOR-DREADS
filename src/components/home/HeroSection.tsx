@@ -1,12 +1,13 @@
 import { ButtonLink } from "../common/Button";
-import { PreviewImage } from "../common/PreviewImage";
+import { SiteImage } from "../common/SiteImage";
 
 export function HeroSection() {
   return (
     <section className="relative isolate flex min-h-[calc(100svh-5rem)] items-center overflow-hidden bg-charcoal">
-      <PreviewImage
-        src="/images/hero.svg"
-        alt=""
+      <SiteImage
+        slot="hero"
+        fallback="/images/hero.svg"
+        width={1920}
         aria-hidden
         loading="eager"
         fetchPriority="high"

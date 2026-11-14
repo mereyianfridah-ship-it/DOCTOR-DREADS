@@ -2,6 +2,7 @@ import { Quote } from "lucide-react";
 import type { Testimonial } from "../../types";
 import { PreviewImage } from "../common/PreviewImage";
 import { avatarImage } from "../../utils/placeholderImages";
+import { StarRating } from "../common/StarRating";
 
 export function TestimonialCard({ t }: { t: Testimonial }) {
   return (
@@ -14,6 +15,7 @@ export function TestimonialCard({ t }: { t: Testimonial }) {
         loading="lazy"
       />
       <Quote className="h-8 w-8 text-gold mt-16" aria-hidden />
+      {t.rating ? <StarRating value={t.rating} className="mt-3" /> : null}
       <blockquote className="mt-4 flex-1 text-base leading-relaxed text-charcoal/80">{t.quote}</blockquote>
       <figcaption className="mt-6 border-t border-charcoal/10 pt-4">
         <p className="font-semibold">{t.name}</p>

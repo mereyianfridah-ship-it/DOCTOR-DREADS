@@ -1,6 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { all, get, sweepExpired } from "../db.js";
-import { notFound } from "../lib/errors.js";
+import rateLimit from "express-rate-limit";
+import { z } from "zod";
+import { config } from "../config.js";
+import { all, get, run, sweepExpired } from "../db.js";
+import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
+import { email } from "../lib/schemas.js";
+import { nowIso } from "../lib/util.js";
 import { site } from "../site.js";
 
 export const catalogRouter = Router();
@@ -88,6 +94,13 @@ catalogRouter.get("/products/:slug", async (req, res) => {
   res.json(product(r));
 });
 
+/** Owner-uploaded site images keyed by slot, e.g. { hero: { url, alt } }. Slots with no upload are absent. */
+catalogRouter.get("/site-images", async (_req, res) => {
+  const rows = await all<{ slot: string; url: string; alt: string }>("SELECT slot,url,alt FROM site_images");
+  res.setHeader("Cache-Control", "public, max-age=60");
+  res.json(Object.fromEntries(rows.map((r) => [r.slot, { url: r.url, alt: r.alt }])));
+});
+
 catalogRouter.get("/categories", async (_req, res) => {
   const rows = await all("SELECT name, slug FROM categories WHERE active=TRUE ORDER BY display_order, name");
   res.json(rows);
@@ -99,4 +112,27 @@ catalogRouter.get("/gallery", async (req, res) => {
     .map((g) => ({ id: g.id, title: g.title, category: g.category, image: g.image, afterImage: g.after_image ?? undefined, isVideo: !!g.is_video })));
 });
 
-catalogRouter.get("/testimonials", async (_req, res) => res.json(await all("SELECT id,name,detail,quote FROM testimonials ORDER BY sort")));
+/** Only approved reviews are public. The reviewer's email is never returned. */
+catalogRouter.get("/testimonials", async (_req, res) =>
+  res.json(await all("SELECT id,name,detail,quote,rating FROM testimonials WHERE status='approved' ORDER BY sort, created_at DESC NULLS LAST, id LIMIT 24")));
+
+const reviewLimiter = rateLimit({ windowMs: 60 * 60_000, limit: config.isTest ? 1000 : 3, standardHeaders: true, legacyHeaders: false, message: { error: "Too many reviews from this connection, please try again later" } });
+
+catalogRouter.post("/testimonials", reviewLimiter, asyncHandler(async (req, res) => {
+  const b = z.object({
+    name: z.string().trim().min(2, "Please enter your name").max(80),
+    email,
+    detail: z.string().trim().max(80).default(""),
+    rating: z.coerce.number().int().min(1, "Choose a rating from 1 to 5").max(5, "Choose a rating from 1 to 5"),
+    quote: z.string().trim().min(20, "Please write at least 20 characters").max(600, "Please keep it under 600 characters"),
+    website: z.string().optional(), // honeypot: real users leave this empty
+  }).parse(req.body);
+  if (b.website) return res.status(201).json({ ok: true }); // pretend success to bots
+  const waiting = await get<{ n: string | number }>("SELECT COUNT(*) AS n FROM testimonials WHERE email=$1 AND status='pending'", b.email);
+  if (Number(waiting?.n ?? 0) >= 3) throw new HttpError(429, "You already have reviews waiting for approval. Thank you!");
+  await run(
+    "INSERT INTO testimonials (id,name,detail,quote,sort,status,rating,email,created_at) VALUES ($1,$2,$3,$4,0,'pending',$5,$6,$7)",
+    `rev_${randomUUID()}`, b.name, b.detail || "Client", b.quote, b.rating, b.email, nowIso(),
+  );
+  res.status(201).json({ ok: true, message: "Thank you! Your review will appear once the salon has approved it." });
+}));

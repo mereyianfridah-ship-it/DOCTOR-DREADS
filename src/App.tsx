@@ -40,6 +40,8 @@ const AdminBookings = lazy(() => import("./pages/admin/AdminBookings"));
 const AdminOrders = lazy(() => import("./pages/admin/AdminOrders"));
 const AdminConsultations = lazy(() => import("./pages/admin/AdminConsultations"));
 const AdminMessages = lazy(() => import("./pages/admin/AdminMessages"));
+const AdminReviews = lazy(() => import("./pages/admin/AdminReviews"));
+const AdminImages = lazy(() => import("./pages/admin/AdminImages"));
 const AdminPayments = lazy(() => import("./pages/admin/AdminPayments"));
 const AdminProducts = lazy(() => import("./pages/admin/AdminProducts"));
 const AdminServices = lazy(() => import("./pages/admin/AdminServices"));
@@ -85,6 +87,8 @@ export default function App() {
                   <Route path="orders" element={lazyPage(<AdminOrders />)} />
                   <Route path="consultations" element={lazyPage(<AdminConsultations />)} />
                   <Route path="messages" element={lazyPage(<AdminMessages />)} />
+                  <Route path="reviews" element={lazyPage(<AdminReviews />)} />
+                  <Route path="images" element={lazyPage(<AdminImages />)} />
                   <Route path="payments" element={lazyPage(<AdminPayments />)} />
                   <Route path="products" element={lazyPage(<AdminProducts />)} />
                   <Route path="services" element={lazyPage(<AdminServices />)} />

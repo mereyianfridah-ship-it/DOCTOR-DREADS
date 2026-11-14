@@ -12,6 +12,8 @@ import type {
   GalleryItem,
   OrderRecord,
   PaymentRecord,
+  ReviewRecord,
+  ReviewStatus,
   Product,
   Service,
   SiteRules,
@@ -36,8 +38,22 @@ export const getCategories = (signal?: AbortSignal) =>
 export const getGallery = (signal?: AbortSignal) =>
   api<GalleryItem[]>("/gallery", { signal });
 
+export type SiteImageMap = Record<string, { url: string; alt: string }>;
+export const getSiteImages = (signal?: AbortSignal) =>
+  api<SiteImageMap>("/site-images", { signal });
+
 export const getTestimonials = (signal?: AbortSignal) =>
   api<Testimonial[]>("/testimonials", { signal });
+
+export const submitReview = (b: {
+  name: string;
+  email: string;
+  detail: string;
+  rating: number;
+  quote: string;
+  website: string;
+}) =>
+  api<{ ok: true; message?: string }>("/testimonials", { method: "POST", body: b });
 
 
 // ---- authentication ---------------------------------------------------------------------------
@@ -446,6 +462,51 @@ export const adminSetMessageHandled = (
     body: { handled },
   });
 
+
+export const adminReviews = (
+  p: { status?: ReviewStatus; limit?: number; offset?: number },
+  signal?: AbortSignal
+) =>
+  api<ReviewRecord[]>(`/admin/testimonials${qs(p)}`, { signal });
+
+export const adminSetReviewStatus = (id: string, status: ReviewStatus) =>
+  api<{ ok: true }>(`/admin/testimonials/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { status },
+  });
+
+export const adminDeleteReview = (id: string) =>
+  api<{ ok: true }>(`/admin/testimonials/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+
+/** Replace the photo in a site slot (hero, welcome photos, about, booking banner). */
+export const adminSetSiteImage = (slot: string, file: File, alt = "") => {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("alt", alt);
+  return api<{ slot: string; url: string; alt: string }>(`/uploads/site-images/${encodeURIComponent(slot)}`, { method: "PUT", form });
+};
+
+export const adminResetSiteImage = (slot: string) =>
+  api<{ ok: true }>(`/uploads/site-images/${encodeURIComponent(slot)}`, { method: "DELETE" });
+
+export const adminSetServiceImage = (slug: string, file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api<{ slug: string; image: string }>(`/uploads/services/${encodeURIComponent(slug)}`, { method: "PUT", form });
+};
+
+export const adminUploadGalleryPhoto = (file: File, title: string, category: string) => {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("title", title);
+  form.append("category", category);
+  return api<GalleryItem>("/uploads/gallery", { method: "POST", form });
+};
+
+export const adminDeleteGalleryPhoto = (id: string) =>
+  api<{ ok: true }>(`/uploads/gallery/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export const adminCreateCancellationRequest = (
   reference: string,
