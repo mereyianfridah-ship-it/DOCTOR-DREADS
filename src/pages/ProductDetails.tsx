@@ -52,7 +52,7 @@ function ProductView({ slug }: { slug: string }) {
           </Link>
           <div className="grid gap-12 lg:grid-cols-2">
             <div>
-              <ProductImage src={product.images[imgIndex]} alt={product.name} loading="eager" className="aspect-square w-full rounded-2xl object-cover" />
+              <ProductImage src={product.images[imgIndex]} alt={product.name} category={product.category} loading="eager" className="aspect-square w-full rounded-2xl object-cover" />
               {product.images.length > 1 && (
                 <div className="mt-4 flex gap-3">
                   {product.images.map((src, i) => (
@@ -64,7 +64,7 @@ function ProductView({ slug }: { slug: string }) {
                       aria-pressed={i === imgIndex}
                       className={`h-20 w-20 overflow-hidden rounded-lg border-2 ${i === imgIndex ? "border-gold" : "border-transparent"}`}
                     >
-                      <ProductImage src={src} alt="" category={product.category} className="h-full w-full object-cover" />
+                      <ProductImage src={src} alt="" name={product.name} category={product.category} className="h-full w-full object-cover" />
                     </button>
                   ))}
                 </div>

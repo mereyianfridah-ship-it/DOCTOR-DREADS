@@ -1,33 +1,30 @@
-import { useState } from "react";
-import { placeholderForCategory, fallbackImage } from "../../utils/placeholderImages";
+import { PreviewImage } from "./PreviewImage";
+import { productImage } from "../../utils/placeholderImages";
 
-/** Product photo with a beautiful AI-generated placeholder fallback. */
+/** Product photo. Real uploads show as-is; placeholder products get a matching real-photo preview. */
 export function ProductImage({
   src,
   alt,
   category,
+  name,
   className = "",
   loading = "lazy",
 }: {
   src?: string | null;
   alt: string;
   category?: string;
+  /** Product name; used to pick a matching photo (comb, bonnet, castor oil...). Defaults to alt. */
+  name?: string;
   className?: string;
   loading?: "lazy" | "eager";
 }) {
-  const [failed, setFailed] = useState(false);
-  const showPlaceholder = !src || failed;
-  const placeholder = showPlaceholder
-    ? placeholderForCategory(category ?? "", Math.floor(Math.random() * 10000))
-    : fallbackImage(Math.floor(Math.random() * 10000));
-
   return (
-    <img
-      src={showPlaceholder ? placeholder : src}
-      alt={showPlaceholder ? `${alt} (AI placeholder)` : alt}
+    <PreviewImage
+      src={src}
+      preview={productImage(category ?? "", name ?? alt, src ?? "")}
+      alt={alt}
       loading={loading}
       decoding="async"
-      onError={() => setFailed(true)}
       className={className}
     />
   );

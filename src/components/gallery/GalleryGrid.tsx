@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Play, X } from "lucide-react";
 import type { GalleryItem } from "../../types";
 import { BeforeAfter } from "./BeforeAfter";
-import { locsImage, braidsImage } from "../../utils/placeholderImages";
+import { PreviewImage } from "../common/PreviewImage";
+import { galleryImage } from "../../utils/placeholderImages";
 
 function GalleryImage({ g, index, setActive }: { g: GalleryItem; index: number; setActive: (i: number) => void }) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const showPlaceholder = imgFailed;
-  const placeholder = g.category.toLowerCase().includes("braid") ? braidsImage(index + 200) : locsImage(index + 200);
   return (
     <li key={g.id} className="break-inside-avoid">
       <button
@@ -16,12 +14,12 @@ function GalleryImage({ g, index, setActive }: { g: GalleryItem; index: number; 
         className="group relative block w-full overflow-hidden rounded-2xl bg-cream text-left"
         aria-label={`Open ${g.title}`}
       >
-        <img
-          src={showPlaceholder ? placeholder : g.image}
-          alt={`${g.title} (placeholder)`}
+        <PreviewImage
+          src={g.image}
+          preview={galleryImage(g.category, g.id)}
+          alt={g.title}
           loading="lazy"
           decoding="async"
-          onError={() => setImgFailed(true)}
           className={`w-full object-cover transition duration-500 group-hover:scale-105 ${index % 3 === 0 ? "aspect-[4/5]" : "aspect-square"}`}
         />
         {g.isVideo && (
@@ -92,7 +90,7 @@ export function GalleryGrid({ items }: { items: GalleryItem[] }) {
             {current.afterImage ? (
               <BeforeAfter before={current.image} after={current.afterImage} title={current.title} />
             ) : (
-              <img src={current.image} alt={current.title} className="max-h-[75vh] w-full rounded-2xl object-contain" />
+              <PreviewImage src={current.image} alt={current.title} className="max-h-[75vh] w-full rounded-2xl object-contain" />
             )}
             <p className="mt-4 text-center text-offwhite">{current.title}</p>
             {current.isVideo && (

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Play } from "lucide-react";
 import { getGallery } from "../../api/endpoints";
@@ -7,19 +6,16 @@ import { ButtonLink } from "../common/Button";
 import { DemoNotice } from "../common/DemoNotice";
 import { SectionHeading } from "../common/SectionHeading";
 import { BeforeAfter } from "../gallery/BeforeAfter";
-import { locsImage, braidsImage } from "../../utils/placeholderImages";
+import { PreviewImage } from "../common/PreviewImage";
+import { galleryImage } from "../../utils/placeholderImages";
 
-function GalleryImageItem({ g, index }: { g: { id: string; title: string; image: string; category: string }; index: number }) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const showPlaceholder = imgFailed;
-  const placeholder = g.category.toLowerCase().includes("braid") ? braidsImage(index + 100) : locsImage(index + 100);
+function GalleryImageItem({ g }: { g: { id: string; title: string; image: string; category: string } }) {
   return (
-    <img
-      key={g.id}
-      src={showPlaceholder ? placeholder : g.image}
+    <PreviewImage
+      src={g.image}
+      preview={galleryImage(g.category, g.id)}
       alt={g.title}
       loading="lazy"
-      onError={() => setImgFailed(true)}
       className="aspect-[4/5] w-full rounded-2xl object-cover"
     />
   );
@@ -42,8 +38,8 @@ export function GalleryPreview() {
 
         <div className="mt-12 grid gap-4 lg:grid-cols-3">
           <div className="grid grid-cols-2 gap-4 lg:col-span-2">
-            {stills.map((g, i) => (
-              <GalleryImageItem key={g.id} g={g} index={i} />
+            {stills.map((g) => (
+              <GalleryImageItem key={g.id} g={g} />
             ))}
           </div>
           <div className="flex flex-col gap-4">
@@ -56,7 +52,7 @@ export function GalleryPreview() {
                 className="group relative block flex-1 min-h-48 overflow-hidden rounded-2xl bg-charcoal"
                 aria-label="Video placeholder, open video gallery"
               >
-                <img src={video.image} alt="" aria-hidden loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-70 transition group-hover:scale-105" />
+                <PreviewImage src={video.image} alt="" aria-hidden loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-70 transition group-hover:scale-105" />
                 <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-offwhite">
                   <span className="flex h-14 w-14 items-center justify-center rounded-full bg-gold text-charcoal">
                     <Play className="h-6 w-6" aria-hidden />

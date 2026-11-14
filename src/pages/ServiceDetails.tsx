@@ -1,5 +1,4 @@
 import { Link, useParams } from "react-router-dom";
-import { useState } from "react";
 import { ArrowLeft, CalendarCheck, Check, Clock, MessageCircle, Tag } from "lucide-react";
 import { ButtonLink } from "../components/common/Button";
 import { DemoNotice } from "../components/common/DemoNotice";
@@ -9,6 +8,7 @@ import { ServiceCard } from "../components/services/ServiceCard";
 import { QueryState } from "../components/common/QueryState";
 import { useCatalog } from "../context/CatalogContext";
 import NotFound from "./NotFound";
+import { PreviewImage } from "../components/common/PreviewImage";
 import { serviceImage } from "../utils/placeholderImages";
 
 export default function ServiceDetails() {
@@ -27,10 +27,6 @@ function ServiceView({ slug }: { slug: string }) {
   const consultation = service.bookingType === "consultation";
   const related = services.filter((s) => s.slug !== service.slug && s.category === service.category).concat(services.filter((s) => s.slug !== service.slug && s.category !== service.category)).slice(0, 3);
 
-  const [imgFailed, setImgFailed] = useState(false);
-  const showPlaceholder = !service.image || imgFailed;
-  const placeholder = serviceImage(service.slug);
-
   return (
     <>
       <section className="section">
@@ -39,11 +35,11 @@ function ServiceView({ slug }: { slug: string }) {
             <ArrowLeft className="h-4 w-4" /> All services
           </Link>
           <div className="grid gap-12 lg:grid-cols-2">
-            <img
-              src={showPlaceholder ? placeholder : service.image}
-              alt={`${service.name} (${showPlaceholder ? "AI placeholder" : "sample image"})`}
+            <PreviewImage
+              src={service.image}
+              preview={serviceImage(service.slug)}
+              alt={service.name}
               className="aspect-[4/5] w-full rounded-2xl object-cover"
-              onError={() => setImgFailed(true)}
             />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brown">{service.category}</p>

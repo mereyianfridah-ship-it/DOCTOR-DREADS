@@ -119,7 +119,7 @@ function ProductRow({ p, categories, onChanged }: { p: Product; categories: Cate
         <div className="flex flex-wrap items-center gap-2">
           {p.images.map((url, i) => (
             <div key={url} className="relative">
-              <ProductImage src={url} alt={`${p.name} photo ${i + 1}`} className="h-12 w-12 rounded-lg border object-cover" />
+              <ProductImage src={url} alt={`${p.name} photo ${i + 1}`} name={p.name} category={p.category} className="h-12 w-12 rounded-lg border object-cover" />
               {!url.startsWith("/images/") && (
                 <div className="mt-1 flex justify-center gap-1">
                   {i !== 0 && (

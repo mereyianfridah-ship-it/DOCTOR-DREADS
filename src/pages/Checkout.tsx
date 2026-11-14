@@ -1,3 +1,4 @@
+import { ProductImage } from "../components/common/ProductImage";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, useWatch } from "react-hook-form";
@@ -188,7 +189,7 @@ function CheckoutForm({ rules }: { rules: NonNullable<ReturnType<typeof useCatal
         <ul className="mt-5 divide-y divide-charcoal/10">
           {lines.map((l) => (
             <li key={l.product.slug} className="flex items-center gap-3 py-3">
-              <img src={l.product.images[0]} alt="" className="h-14 w-14 rounded-lg object-cover" />
+              <ProductImage src={l.product.images[0]} alt={l.product.name} category={l.product.category} className="h-14 w-14 rounded-lg object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{l.product.name}</p>
                 <p className="text-xs text-charcoal/60">Qty {l.quantity}</p>

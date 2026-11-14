@@ -1,9 +1,10 @@
 import { ButtonLink } from "../common/Button";
+import { PreviewImage } from "../common/PreviewImage";
 
 export function HeroSection() {
   return (
     <section className="relative isolate flex min-h-[calc(100svh-5rem)] items-center overflow-hidden bg-charcoal">
-      <img
+      <PreviewImage
         src="/images/hero.svg"
         alt=""
         aria-hidden
