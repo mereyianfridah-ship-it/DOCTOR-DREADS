@@ -30,6 +30,12 @@ export const config = {
   holdMinutes: Number(env.HOLD_MINUTES ?? 10),
   /** Customer self-service rescheduling: how many times, and how many hours before the appointment it must be done. */
   reschedule: { maxCount: Number(env.RESCHEDULE_MAX ?? 2), minHours: Number(env.RESCHEDULE_MIN_HOURS ?? 24) },
+  /** Deposit refund tiers on cancellation: full refund with fullHours+ notice, partialPercent with partialHours+ notice, else none. */
+  refund: {
+    fullHours: Number(env.REFUND_FULL_HOURS ?? 48),
+    partialHours: Number(env.REFUND_PARTIAL_HOURS ?? 24),
+    partialPercent: Number(env.REFUND_PARTIAL_PERCENT ?? 50),
+  },
   upload: { maxFiles: 5, maxBytes: 10 * 1024 * 1024 },
   /** Cloudinary (secure backend uploads). CLOUDINARY_URL encodes cloud_name/api_key/api_secret. */
   cloudinaryUrl: env.CLOUDINARY_URL ?? "",

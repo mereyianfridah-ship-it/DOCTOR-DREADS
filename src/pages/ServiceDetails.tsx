@@ -9,6 +9,7 @@ import { QueryState } from "../components/common/QueryState";
 import { useCatalog } from "../context/CatalogContext";
 import NotFound from "./NotFound";
 import { PreviewImage } from "../components/common/PreviewImage";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { serviceImage } from "../utils/placeholderImages";
 
 export default function ServiceDetails() {
@@ -23,6 +24,7 @@ export default function ServiceDetails() {
 function ServiceView({ slug }: { slug: string }) {
   const { services, getService } = useCatalog();
   const service = getService(slug)!;
+  useDocumentTitle(service.name);
 
   const consultation = service.bookingType === "consultation";
   const related = services.filter((s) => s.slug !== service.slug && s.category === service.category).concat(services.filter((s) => s.slug !== service.slug && s.category !== service.category)).slice(0, 3);

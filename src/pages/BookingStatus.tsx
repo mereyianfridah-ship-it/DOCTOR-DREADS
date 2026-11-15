@@ -75,12 +75,25 @@ export default function BookingStatus() {
                     <div key={k} className="flex justify-between gap-6 py-3"><dt className="text-charcoal/60">{k}</dt><dd className="text-right font-medium">{v}</dd></div>
                   ))}
                 </dl>
+                {b.status === "confirmed" && b.refundQuote && (
+                  <p className="mt-6 rounded-xl border border-charcoal/10 bg-cream/50 p-4 text-sm text-charcoal/80">
+                    <strong>Cancellation refund:</strong> {b.refundQuote.message}
+                    {b.refundQuote.tier !== "full" && b.canReschedule && " Rescheduling instead keeps your deposit."}
+                  </p>
+                )}
+                {b.status === "cancelled" && b.refundStatus && (
+                  <p className="mt-6 rounded-xl border border-gold/40 bg-gold/10 p-4 text-sm">
+                    {b.refundStatus === "due"
+                      ? <>A refund of <strong>{formatKSh(b.refundAmount ?? 0)}</strong> is being processed by the salon and will be sent to your M-Pesa number.</>
+                      : <>Your refund of <strong>{formatKSh(b.refundAmount ?? 0)}</strong> has been sent.</>}
+                  </p>
+                )}
                 <RescheduleBooking booking={b} email={email} onDone={(note) => { if (note) toast.info(note); reload(); }} />
                 {(b.status === "pending_deposit" || b.status === "confirmed") && (
                   <div className="mt-8">
                     <ConfirmAction
                       label="Cancel booking" confirmLabel="Yes, cancel booking" busy={busy} onConfirm={cancel}
-                      message={b.status === "confirmed" ? "Cancel this confirmed booking? Any refund is decided by the salon under its cancellation policy; none is issued automatically." : "Cancel this held slot?"}
+                      message={b.status === "confirmed" ? `Cancel this confirmed booking? ${b.refundQuote?.message ?? ""}${b.refundQuote && b.refundQuote.amount > 0 ? ` You would get ${formatKSh(b.refundQuote.amount)} back.` : ""}` : "Cancel this held slot?"}
                     />
                   </div>
                 )}

@@ -375,6 +375,9 @@ export const adminBookings = (
 ) =>
   api<BookingRecord[]>(`/admin/bookings${qs(p)}`, { signal });
 
+export const adminMarkRefunded = (reference: string) =>
+  api<{ ok: true }>(`/admin/bookings/${encodeURIComponent(reference)}/refund`, { method: "POST", body: {} });
+
 export const adminSetBookingStatus = (
   reference: string,
   status: "confirmed" | "completed" | "cancelled"

@@ -111,6 +111,13 @@ export interface BookingRecord {
   /** Server-decided: status, limit and notice period already checked. */
   canReschedule?: boolean;
   rescheduleBlockedReason?: string | null;
+  cancelledAt?: string | null;
+  /** KSh owed back to the customer after cancellation (0 = none). */
+  refundAmount?: number;
+  refundStatus?: "due" | "refunded" | null;
+  refundedAt?: string | null;
+  /** What cancelling now would return; only on active bookings. */
+  refundQuote?: { amount: number; percent: number; tier: "full" | "partial" | "none" | "not_paid"; message: string } | null;
 }
 
 export type OrderStatus = "pending_payment" | "paid" | "processing" | "shipped" | "delivered" | "cancelled" | "expired";

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { PackageSearch } from "lucide-react";
 import { Button } from "../components/common/Button";
 import { CategoryFilter } from "../components/common/CategoryFilter";
@@ -9,47 +9,51 @@ import { SearchBar } from "../components/common/SearchBar";
 import { ProductGrid } from "../components/shop/ProductGrid";
 import { QueryState } from "../components/common/QueryState";
 import { useCatalog } from "../context/CatalogContext";
-import { categoriesOf } from "../utils/product";
+import { useSearchParams } from "react-router-dom";
+import { categoriesOf, filterProducts, type ShopSort } from "../utils/product";
 
-type Sort = "featured" | "price-asc" | "price-desc" | "name";
+type Sort = ShopSort;
 const priceRanges = [
-  { id: "all", label: "Any price", test: () => true },
-  { id: "u800", label: "Under KSh 800", test: (p: number) => p < 800 },
-  { id: "800-1200", label: "KSh 800 – 1,200", test: (p: number) => p >= 800 && p <= 1200 },
-  { id: "o1200", label: "Over KSh 1,200", test: (p: number) => p > 1200 },
+  { id: "all", label: "Any price", min: undefined, max: undefined },
+  { id: "u800", label: "Under KSh 800", min: undefined, max: 799 },
+  { id: "800-1200", label: "KSh 800 – 1,200", min: 800, max: 1200 },
+  { id: "o1200", label: "Over KSh 1,200", min: 1201, max: undefined },
 ];
 
 export default function Shop() {
   const { products, status, error, reload } = useCatalog();
   const productCategories = useMemo(() => categoriesOf(products), [products]);
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("");
-  const [range, setRange] = useState("all");
-  const [sort, setSort] = useState<Sort>("featured");
+  // Filters live in the URL so a filtered shop view can be shared or bookmarked.
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q") ?? "";
+  const category = params.get("category") ?? "";
+  const range = priceRanges.some((x) => x.id === params.get("price")) ? (params.get("price") as string) : "all";
+  const sortParam = params.get("sort");
+  const sort: Sort = sortParam === "price-asc" || sortParam === "price-desc" || sortParam === "name" ? sortParam : "featured";
+  const inStockOnly = params.get("instock") === "1";
+
+  const setParam = (key: string, value: string, fallback = "") =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value && value !== fallback) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+  const setQuery = (v: string) => setParam("q", v);
+  const setCategory = (v: string) => setParam("category", v);
+  const setRange = (v: string) => setParam("price", v, "all");
+  const setSort = (v: Sort) => setParam("sort", v, "featured");
+  const setInStockOnly = (v: boolean) => setParam("instock", v ? "1" : "");
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
     const r = priceRanges.find((x) => x.id === range) ?? priceRanges[0];
-    const list = products.filter(
-      (p) =>
-        (!category || p.category === category) &&
-        r.test(p.price) &&
-        (!q || `${p.name} ${p.shortDescription} ${p.category}`.toLowerCase().includes(q)),
-    );
-    const sorted = [...list];
-    if (sort === "price-asc") sorted.sort((a, b) => a.price - b.price);
-    else if (sort === "price-desc") sorted.sort((a, b) => b.price - a.price);
-    else if (sort === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
-    else sorted.sort((a, b) => Number(!!b.featured) - Number(!!a.featured));
-    return sorted;
-  }, [query, category, range, sort, products]);
+    return filterProducts(products, { query, category, minPrice: r.min, maxPrice: r.max, inStockOnly, sort });
+  }, [query, category, range, sort, inStockOnly, products]);
 
-  const reset = () => {
-    setQuery("");
-    setCategory("");
-    setRange("all");
-    setSort("featured");
-  };
+  const reset = () => setParams({}, { replace: true });
 
   return (
     <>
@@ -81,9 +85,15 @@ export default function Shop() {
           <div className="mt-5">
             <CategoryFilter options={productCategories} value={category} onChange={setCategory} allLabel="All products" label="Filter products" />
           </div>
-          <p className="mt-6 text-sm text-charcoal/60" aria-live="polite">
-            {results.length} product{results.length === 1 ? "" : "s"}
-          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-charcoal/60" aria-live="polite">
+              {results.length} product{results.length === 1 ? "" : "s"}
+            </p>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-charcoal/80">
+              <input type="checkbox" checked={inStockOnly} onChange={(e) => setInStockOnly(e.target.checked)} className="h-4 w-4 accent-current" />
+              In stock only
+            </label>
+          </div>
           <div className="mt-4">
             {results.length ? (
               <ProductGrid products={results} />

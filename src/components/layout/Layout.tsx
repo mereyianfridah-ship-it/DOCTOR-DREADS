@@ -5,11 +5,31 @@ import { Footer } from "./Footer";
 import { CartDrawer } from "../shop/CartDrawer";
 import { ToastNotification } from "../common/ToastNotification";
 import { WhatsAppFloat } from "../common/ContactButtons";
+import { isPrivatePath, titleForPath } from "../../utils/pageMeta";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior });
+  }, [pathname]);
+  return null;
+}
+
+/** Per-route tab title and robots hint; detail pages override the title via useDocumentTitle. */
+function PageMeta() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const title = titleForPath(pathname);
+    if (title) document.title = title;
+    let robots = document.head.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    if (isPrivatePath(pathname)) {
+      if (!robots) {
+        robots = document.createElement("meta");
+        robots.name = "robots";
+        document.head.appendChild(robots);
+      }
+      robots.content = "noindex, nofollow";
+    } else robots?.remove();
   }, [pathname]);
   return null;
 }
@@ -25,6 +45,7 @@ export function Layout() {
         Skip to content
       </a>
       <ScrollToTop />
+      <PageMeta />
       <Navbar />
       <main id="main" key={pathname} className="flex-1 animate-fade-in">
         <Outlet />

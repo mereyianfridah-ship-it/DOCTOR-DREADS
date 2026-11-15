@@ -44,10 +44,29 @@ adminRouter.patch("/admin/bookings/:reference", async (req, res) => {
     const paymentSucceeded = await get<any>("SELECT 1 FROM payments WHERE kind='booking' AND target_id=$1 AND status='succeeded' LIMIT 1", b.id);
     if (!paymentSucceeded) throw new HttpError(409, "Payment must succeed before marking booking as completed", { status: "Payment not succeeded" });
   }
-  try { await run("UPDATE bookings SET status=$1, expires_at=NULL WHERE id=$2", st, b.id); }
+  // A salon-initiated cancellation of a paid booking always owes the customer the whole deposit.
+  const prior = await get<any>("SELECT status, deposit_amount FROM bookings WHERE id=$1", b.id);
+  const refundOwed = st === "cancelled" && prior?.status === "confirmed";
+  try {
+    await run(
+      refundOwed
+        ? "UPDATE bookings SET status=$1, expires_at=NULL, cancelled_at=$3, refund_amount=$4, refund_status='due' WHERE id=$2"
+        : "UPDATE bookings SET status=$1, expires_at=NULL WHERE id=$2",
+      ...(refundOwed ? [st, b.id, nowIso(), Number(prior.deposit_amount)] : [st, b.id]),
+    );
+  }
   catch { throw new HttpError(409, "That slot is now held by another booking"); }
   res.json({ ok: true });
 });
+
+adminRouter.post("/admin/bookings/:reference/refund", asyncHandler(async (req, res) => {
+  const b = await get<any>("SELECT id, refund_status FROM bookings WHERE reference=$1", String(req.params.reference).toUpperCase());
+  if (!b) throw notFound("Booking");
+  if (b.refund_status === "refunded") return res.json({ ok: true });
+  if (b.refund_status !== "due") throw new HttpError(409, "No refund is due on this booking");
+  await run("UPDATE bookings SET refund_status='refunded', refunded_at=$2 WHERE id=$1 AND refund_status='due'", b.id, nowIso());
+  res.json({ ok: true });
+}));
 
 adminRouter.post("/admin/bookings/:reference/cancellation-request", asyncHandler(async (req, res) => {
   const { reason } = req.body;

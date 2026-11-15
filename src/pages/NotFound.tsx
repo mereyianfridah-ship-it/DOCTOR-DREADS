@@ -1,6 +1,8 @@
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { ButtonLink } from "../components/common/Button";
 
 export default function NotFound() {
+  useDocumentTitle("Page not found");
   return (
     <section className="section">
       <div className="container-page max-w-xl text-center">

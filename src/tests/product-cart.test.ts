@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Product } from "../types";
 import { sanitiseCart } from "../utils/cart";
-import { categoriesOf, maxQuantity, stockStatus } from "../utils/product";
+import { categoriesOf, filterProducts, maxQuantity, stockStatus } from "../utils/product";
 
 const p = (slug: string, stock: number, category = "Oils"): Product => ({
   slug, name: slug, category, shortDescription: "", description: "", price: 500, stock, images: [], size: "100ml", status: "active", low_stock_threshold: 5,
@@ -39,5 +39,24 @@ describe("sanitiseCart", () => {
   it("returns an empty cart for non-array input", () => {
     expect(sanitiseCart("garbage", products)).toEqual([]);
     expect(sanitiseCart(null, products)).toEqual([]);
+  });
+});
+
+describe("filterProducts", () => {
+  const base = { query: "", category: "", inStockOnly: false, sort: "featured" as const };
+  const items = [
+    { ...p("a", 0, "Oils"), name: "Coconut Oil", price: 600 },
+    { ...p("b", 5, "Oils"), name: "Castor Oil", price: 900 },
+    { ...p("c", 9, "Gels"), name: "Moulding Gel", price: 1500 },
+  ];
+  it("matches every search word in any order", () => {
+    expect(filterProducts(items, { ...base, query: "oil coconut" }).map((x) => x.slug)).toEqual(["a"]);
+  });
+  it("filters by stock and price bounds", () => {
+    expect(filterProducts(items, { ...base, inStockOnly: true }).map((x) => x.slug)).toEqual(["b", "c"]);
+    expect(filterProducts(items, { ...base, minPrice: 800, maxPrice: 1200 }).map((x) => x.slug)).toEqual(["b"]);
+  });
+  it("sorts by price descending", () => {
+    expect(filterProducts(items, { ...base, sort: "price-desc" }).map((x) => x.slug)).toEqual(["c", "b", "a"]);
   });
 });

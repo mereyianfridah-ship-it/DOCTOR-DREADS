@@ -5,6 +5,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { CatalogProvider } from "./context/CatalogContext";
 import { CartProvider } from "./context/CartContext";
 import { WishlistProvider } from "./context/WishlistContext";
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { Layout } from "./components/layout/Layout";
 import { LoadingSpinner } from "./components/common/LoadingSpinner";
 import { RequireAdmin, RequireAuth } from "./components/common/RequireAuth";
@@ -57,6 +58,7 @@ const lazyPage = (node: ReactNode) => <Suspense fallback={<LoadingSpinner />}>{n
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <AuthProvider>
         <CatalogProvider>
@@ -115,5 +117,6 @@ export default function App() {
         </CatalogProvider>
       </AuthProvider>
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }

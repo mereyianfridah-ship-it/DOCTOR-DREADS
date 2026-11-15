@@ -14,6 +14,7 @@ import { useCatalog } from "../context/CatalogContext";
 import { maxQuantity, stockStatus } from "../utils/product";
 import { formatKSh } from "../utils/format";
 import NotFound from "./NotFound";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function ProductDetails() {
   const { slug = "" } = useParams();
@@ -27,6 +28,7 @@ export default function ProductDetails() {
 function ProductView({ slug }: { slug: string }) {
   const { products, getProduct } = useCatalog();
   const product = getProduct(slug)!;
+  useDocumentTitle(product.name);
   const { addItem, openDrawer } = useCart();
   const { has, toggle } = useWishlist();
   const saved = has(product.slug);

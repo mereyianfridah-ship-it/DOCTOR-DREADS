@@ -11,6 +11,7 @@ import { activeStylists } from "../lib/stylists.js";
 import { loadRules } from "../lib/closureStore.js";
 import { blockingClosure, dayState, partialWindows, salonClosedReason, stylistOffReason } from "../lib/closures.js";
 import { rescheduleEligibility } from "../lib/reschedule.js";
+import { refundQuote } from "../lib/refund.js";
 import { sendMail } from "../lib/mailer.js";
 
 export const bookingsRouter = Router();
@@ -105,6 +106,12 @@ const view = (b: any) => ({
   stylistId: b.stylist_id, fullName: b.full_name, phone: b.phone, email: b.email, notes: b.notes,
   depositAmount: b.deposit_amount, status: b.status, expiresAt: b.status === "pending_deposit" ? b.expires_at : null, createdAt: b.created_at,
   rescheduleCount: Number(b.reschedule_count ?? 0),
+  cancelledAt: b.cancelled_at ?? null,
+  refundAmount: Number(b.refund_amount ?? 0),
+  refundStatus: b.refund_status ?? null,
+  refundedAt: b.refunded_at ?? null,
+  /** What cancelling now would return; only for active bookings. */
+  refundQuote: b.status === "confirmed" || b.status === "pending_deposit" ? (({ amount, percent, tier, message }) => ({ amount, percent, tier, message }))(refundQuote(b, config.refund)) : null,
   ...(() => { const e = rescheduleEligibility(b, config.reschedule); return { canReschedule: e.allowed, rescheduleBlockedReason: e.reason }; })(),
 });
 export const bookingView = view;
@@ -177,22 +184,41 @@ bookingsRouter.post("/bookings/:reference/cancel", optionalAuth, asyncHandler(as
   const b = await findBooking(reference, req, req.body?.email);
   if (!b) return;
 
+  let quote = refundQuote({ ...b, status: "pending_deposit" }, config.refund);
+  let alreadyCancelled = false;
   await tx(async (t$) => {
-    const refreshed = await t$.get<{ id: number; status: string }>(
-      "SELECT id, status FROM bookings WHERE id=$1 FOR UPDATE",
-      b.id
-    );
+    const refreshed = await t$.get<any>("SELECT * FROM bookings WHERE id=$1 FOR UPDATE", b.id);
     if (!refreshed) throw new HttpError(404, "Booking not found");
-    if (refreshed.status === "cancelled") return;
+    if (refreshed.status === "cancelled") { alreadyCancelled = true; return; }
 
     if (!["pending_deposit", "confirmed"].includes(refreshed.status)) {
       throw new HttpError(409, `A ${refreshed.status} booking cannot be cancelled`);
     }
 
-    await t$.run("UPDATE bookings SET status='cancelled' WHERE id=$1", refreshed.id);
+    // Decided inside the lock, from the row's current state, so a double-click can't change the amount.
+    quote = refundQuote(refreshed, config.refund);
+    await t$.run(
+      "UPDATE bookings SET status='cancelled', cancelled_at=$2, refund_amount=$3, refund_status=$4 WHERE id=$1",
+      refreshed.id, nowIso(), quote.amount, quote.amount > 0 ? "due" : null,
+    );
   });
 
-  res.json({ booking: view(await get(`${SELECT} WHERE b.id=$1`, b.id)), note: b.status === "confirmed" ? "Deposit refunds are handled by the salon." : undefined });
+  const after = await get<any>(`${SELECT} WHERE b.id=$1`, b.id);
+  if (!alreadyCancelled && b.status === "confirmed") {
+    await sendMail({
+      to: b.email,
+      subject: `Booking ${b.reference} cancelled`,
+      text: `Hi ${b.full_name},\n\nYour booking ${b.reference} on ${b.date} at ${b.time} has been cancelled.\n\n` +
+        (quote.amount > 0
+          ? `Refund: KSh ${quote.amount.toLocaleString("en-KE")} (${quote.percent}% of your deposit). The salon will send it to your M-Pesa number; please allow a few working days.\n`
+          : `Refund: none. ${quote.message}\n`),
+    });
+  }
+  res.json({
+    booking: view(after),
+    note: b.status !== "confirmed" || alreadyCancelled ? undefined
+      : quote.amount > 0 ? `Booking cancelled. A refund of KSh ${quote.amount.toLocaleString("en-KE")} is due and will be sent by the salon.` : `Booking cancelled. ${quote.message}`,
+  });
 }));
 
 const rescheduleSchema = z.object({

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "../../api/client";
-import { adminBookings, adminSetBookingStatus } from "../../api/endpoints";
+import { adminBookings, adminMarkRefunded, adminSetBookingStatus } from "../../api/endpoints";
 import { AdminPage, DataTable, Pager, StatusSelect } from "../../components/admin/AdminUi";
 import { Button } from "../../components/common/Button";
 import { ConfirmAction } from "../../components/common/ConfirmAction";
@@ -35,6 +35,19 @@ export default function AdminBookings() {
     }
   };
 
+  const markRefunded = async (reference: string) => {
+    setBusy(reference);
+    try {
+      await adminMarkRefunded(reference);
+      toast.success("Refund marked as paid.");
+      reload();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const rows = data ?? [];
   return (
     <AdminPage
@@ -51,12 +64,17 @@ export default function AdminBookings() {
               <td className="px-4 py-3 whitespace-nowrap">{formatLongDate(b.date)}<div className="text-xs text-charcoal/55">{b.time}</div></td>
               <td className="px-4 py-3">{b.fullName}<div className="text-xs text-charcoal/55">{b.phone} · {b.email}</div>{b.notes && <div className="mt-1 text-xs italic text-charcoal/60">“{b.notes}”</div>}</td>
               <td className="px-4 py-3 whitespace-nowrap">{formatKSh(b.depositAmount)}</td>
-              <td className="px-4 py-3"><StatusBadge {...bookingStatusInfo[b.status]} /></td>
+              <td className="px-4 py-3">
+                <StatusBadge {...bookingStatusInfo[b.status]} />
+                {b.refundStatus === "due" && <div className="mt-1 text-xs font-semibold text-red-700">Refund due: {formatKSh(b.refundAmount ?? 0)}</div>}
+                {b.refundStatus === "refunded" && <div className="mt-1 text-xs text-charcoal/55">Refunded {formatKSh(b.refundAmount ?? 0)}</div>}
+              </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-2">
                   {b.status === "confirmed" && <Button size="sm" variant="secondary" disabled={busy === b.reference} onClick={() => void act(b.reference, "completed")}>Mark completed</Button>}
+                  {b.refundStatus === "due" && <Button size="sm" disabled={busy === b.reference} onClick={() => void markRefunded(b.reference)}>Mark refunded</Button>}
                   {(b.status === "pending_deposit" || b.status === "confirmed") && (
-                    <ConfirmAction label="Cancel" confirmLabel="Cancel booking" busy={busy === b.reference} onConfirm={() => act(b.reference, "cancelled")} message="Cancel this booking and release the slot? Any refund must be handled separately." />
+                    <ConfirmAction label="Cancel" confirmLabel="Cancel booking" busy={busy === b.reference} onConfirm={() => act(b.reference, "cancelled")} message="Cancel this booking and release the slot? If a deposit was paid, the full amount is flagged as a refund due to the customer." />
                   )}
                 </div>
               </td>
