@@ -9,7 +9,6 @@ export function PriceLabel({ service, className = "" }: { service: Service; clas
   return (
     <span className={className}>
       <span className="font-bold">{priceText(service)}</span>
-      {service.priceFrom !== null && <span className="ml-1.5 text-xs text-charcoal/55">(sample price)</span>}
     </span>
   );
 }

@@ -226,7 +226,7 @@ adminExtraRouter.post("/admin/services", asyncHandler(async (req, res) => {
   if (await get("SELECT 1 FROM services WHERE slug=$1", slug)) throw new HttpError(409, "A service with this name already exists", { name: "Already exists" });
   await run(
     `INSERT INTO services (slug, name, category, short_description, description, benefits, image, duration, duration_minutes, price_from, booking_type, featured, sort)
-     VALUES ($1,$2,$3,$4,$5,$6,'/images/service-installation.svg',$7,$8,$9,$10,$11, COALESCE((SELECT MAX(sort)+1 FROM services),0))`,
+     VALUES ($1,$2,$3,$4,$5,$6,'',$7,$8,$9,$10,$11, COALESCE((SELECT MAX(sort)+1 FROM services),0))`,
     slug, b.name, b.category, b.shortDescription, b.description, JSON.stringify(b.benefits), b.duration, b.durationMinutes, b.priceFrom, b.bookingType, b.featured ? 1 : 0);
   res.status(201).json({ ok: true, slug });
 }));

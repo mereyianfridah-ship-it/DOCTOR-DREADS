@@ -29,4 +29,4 @@ Account (sign-in required): `/account`, `/account/bookings`, `/account/orders`. 
 ## Status and documentation
 See `IMPLEMENTATION_STATUS.md`, `AUDIT_REMEDIATION_PLAN.md`, `MANUAL_CONFIGURATION_REQUIRED.md`, `SECURITY_REVIEW.md`, `DATABASE_MIGRATION_GUIDE.md`, `DEPLOYMENT_GUIDE.md`, `TESTING_REPORT.md`.
 
-Seeded services, products, gallery images and testimonials are **samples** until the owner replaces them; the UI labels them as such. Bookings and orders are held briefly and are **not confirmed/processed until payment is verified**, which is not yet possible online.
+Demo content has been removed: the shop and gallery start empty and show only what you add in Admin (products, gallery photos, site images, stylists, settings). Services keep their seeded text and prices until you edit them in Admin > Services. Bookings and orders are held briefly and are **not confirmed/processed until payment is verified**, which is not yet possible online.

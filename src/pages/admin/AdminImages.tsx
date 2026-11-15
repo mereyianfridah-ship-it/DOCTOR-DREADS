@@ -13,7 +13,7 @@ import {
 import { AdminPage } from "../../components/admin/AdminUi";
 import { FilePickButton } from "../../components/admin/FilePickButton";
 import { Button } from "../../components/common/Button";
-import { PreviewImage } from "../../components/common/PreviewImage";
+import { SafeImage } from "../../components/common/SafeImage";
 import { QueryState } from "../../components/common/QueryState";
 import { SITE_IMAGE_INFO, type SiteImageSlotInfo } from "../../config/siteImages";
 import { useCatalog } from "../../context/CatalogContext";
@@ -52,16 +52,17 @@ function SlotCard({ info, current, onChanged }: { info: SiteImageSlotInfo; curre
     if (ok) { invalidateSiteImages(); onChanged(); }
   };
   const reset = async () => {
-    if (!window.confirm(`Go back to the default image for “${info.label}”?`)) return;
-    const ok = await run("reset", () => adminResetSiteImage(info.slot), `${info.label} reset to the default.`);
+    if (!window.confirm(`Remove the photo for “${info.label}”? That spot will be hidden on the website until you upload a new one.`)) return;
+    const ok = await run("reset", () => adminResetSiteImage(info.slot), `${info.label} removed.`);
     if (ok) { invalidateSiteImages(); onChanged(); }
   };
 
   return (
     <li className="overflow-hidden rounded-2xl border border-charcoal/10 bg-white">
-      <PreviewImage
-        src={current ? optimizedUrl(current.url, 800) : info.fallback}
-        alt={current ? `Current ${info.label}` : `Default ${info.label}`}
+      {!current && <div className="flex h-44 w-full items-center justify-center bg-charcoal/10 text-xs text-charcoal/50">No photo yet</div>}
+      <SafeImage
+        src={current ? optimizedUrl(current.url, 800) : null}
+        alt={`Current ${info.label}`}
         className="h-44 w-full bg-charcoal/10 object-cover"
         loading="lazy"
       />
@@ -70,7 +71,7 @@ function SlotCard({ info, current, onChanged }: { info: SiteImageSlotInfo; curre
           <h3 className="text-lg">{info.label}</h3>
           <p className="text-xs text-charcoal/60">{info.where}</p>
           <p className="mt-1 text-xs text-charcoal/55">{info.hint}</p>
-          <p className="mt-1 text-xs font-semibold text-brown">{current ? "Your photo is live" : "Showing the default image"}</p>
+          <p className="mt-1 text-xs font-semibold text-brown">{current ? "Your photo is live" : "No photo uploaded yet (this spot is hidden on the website)"}</p>
         </div>
         {!info.decorative && (
           <div>
@@ -80,7 +81,7 @@ function SlotCard({ info, current, onChanged }: { info: SiteImageSlotInfo; curre
         )}
         <div className="flex flex-wrap gap-2">
           <FilePickButton label={working && busy === "up" ? "Uploading…" : current ? "Replace photo" : "Upload photo"} variant="primary" disabled={working} onFile={(f) => void pick(f)} />
-          {current && <Button size="sm" variant="ghost" disabled={working} onClick={() => void reset()}>{busy === "reset" ? "Resetting…" : "Use default"}</Button>}
+          {current && <Button size="sm" variant="ghost" disabled={working} onClick={() => void reset()}>{busy === "reset" ? "Removing…" : "Remove photo"}</Button>}
         </div>
       </div>
     </li>
@@ -120,7 +121,7 @@ function ServicePhotosSection() {
         <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {services.map((s) => (
             <li key={s.slug} className="flex items-center gap-4 rounded-2xl border border-charcoal/10 bg-white p-4">
-              <PreviewImage src={optimizedUrl(s.image, 300)} alt="" className="h-20 w-24 shrink-0 rounded-lg bg-charcoal/10 object-cover" loading="lazy" />
+              <SafeImage src={optimizedUrl(s.image, 300)} alt="" className="h-20 w-24 shrink-0 rounded-lg bg-charcoal/10 object-cover" loading="lazy" />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{s.name}</p>
                 <div className="mt-2">
@@ -178,7 +179,7 @@ function GallerySection() {
         <ul className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
           {photos.map((g) => (
             <li key={g.id} className="overflow-hidden rounded-xl border border-charcoal/10 bg-white">
-              <PreviewImage src={optimizedUrl(g.image, 500)} alt={g.title} className="aspect-square w-full bg-charcoal/10 object-cover" loading="lazy" />
+              <SafeImage src={optimizedUrl(g.image, 500)} alt={g.title} className="aspect-square w-full bg-charcoal/10 object-cover" loading="lazy" />
               <div className="p-3">
                 <p className="truncate text-sm font-medium">{g.title}</p>
                 <p className="text-xs text-charcoal/55">{g.category}</p>

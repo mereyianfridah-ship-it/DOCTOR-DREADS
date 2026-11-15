@@ -92,5 +92,6 @@ if (isProd && config.payments.mode === "mock") {
 }
 
 export function seedJson<T>(name: string): T {
-  return JSON.parse(readFileSync(path.join(ROOT, "seed", `${name}.json`), "utf8")) as T;
+  const dir = env.SEED_DIR ? path.resolve(env.SEED_DIR) : path.join(ROOT, "seed");
+  return JSON.parse(readFileSync(path.join(dir, `${name}.json`), "utf8")) as T;
 }

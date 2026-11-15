@@ -11,7 +11,7 @@
       "Aftercare guidance to help your locs mature well",
       "Free online photo consultation available"
     ],
-    "image": "/images/service-installation.svg",
+    "image": "",
     "duration": "Duration confirmed after consultation",
     "priceFrom": null,
     "bookingType": "consultation",
@@ -29,8 +29,8 @@
       "Keeps your loc pattern intact",
       "Can be paired with a wash and treatment"
     ],
-    "image": "/images/service-retouching.svg",
-    "duration": "Approx. 2–3 hours (placeholder)",
+    "image": "",
+    "duration": "Approx. 2–3 hours",
     "priceFrom": 2500,
     "bookingType": "instant",
     "featured": true
@@ -47,8 +47,8 @@
       "Lint and build-up management",
       "Personal product recommendations"
     ],
-    "image": "/images/service-maintenance.svg",
-    "duration": "Approx. 1.5–2 hours (placeholder)",
+    "image": "",
+    "duration": "Approx. 1.5–2 hours",
     "priceFrom": 1800,
     "bookingType": "instant",
     "featured": true
@@ -65,8 +65,8 @@
       "Hold-and-finish products applied with care",
       "Tips to make your style last"
     ],
-    "image": "/images/service-styling.svg",
-    "duration": "Approx. 1–2 hours (placeholder)",
+    "image": "",
+    "duration": "Approx. 1–2 hours",
     "priceFrom": 1500,
     "bookingType": "instant",
     "featured": true
@@ -83,8 +83,8 @@
       "Protective styling options",
       "Advice for your routine at home"
     ],
-    "image": "/images/service-natural.svg",
-    "duration": "Approx. 1.5–2.5 hours (placeholder)",
+    "image": "",
+    "duration": "Approx. 1.5–2.5 hours",
     "priceFrom": 1500,
     "bookingType": "instant",
     "featured": true
@@ -100,7 +100,7 @@
       "Targeted repair plan",
       "Guidance to prevent future damage"
     ],
-    "image": "/images/gallery-3.svg",
+    "image": "",
     "duration": "Duration confirmed after consultation",
     "priceFrom": null,
     "bookingType": "consultation"
@@ -116,8 +116,8 @@
       "Mobile service option",
       "Trial styling can be discussed"
     ],
-    "image": "/images/gallery-5.svg",
-    "duration": "Approx. 2–3 hours (placeholder)",
+    "image": "",
+    "duration": "Approx. 2–3 hours",
     "priceFrom": 3500,
     "bookingType": "instant"
   },
@@ -132,8 +132,8 @@
       "Scalp care",
       "Take-home care advice"
     ],
-    "image": "/images/gallery-4.svg",
-    "duration": "Approx. 1 hour (placeholder)",
+    "image": "",
+    "duration": "Approx. 1 hour",
     "priceFrom": 1200,
     "bookingType": "instant"
   }

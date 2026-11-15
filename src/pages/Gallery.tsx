@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { getGallery } from "../api/endpoints";
 import { ButtonLink } from "../components/common/Button";
-import { DemoNotice } from "../components/common/DemoNotice";
 import { PageHeader } from "../components/common/PageHeader";
 import { EmptyState } from "../components/common/EmptyState";
 import { QueryState } from "../components/common/QueryState";
@@ -27,9 +26,6 @@ export default function Gallery() {
       <PageHeader eyebrow="Gallery" title="Locs, styles & transformations" description="A look at the styles and care we love. Real client work will be added with permission." />
       <section className="section">
         <div className="container-page">
-          <DemoNotice className="mb-8">
-            Images and videos here are <strong>sample placeholders</strong> until real, consented photography is published. They are not real Dr Dread Kenya client work.
-          </DemoNotice>
           <QueryState loading={loading} error={error} onRetry={reload}>
             <GalleryFilter categories={categories} value={category} onChange={setCategory} />
             <div className="mt-10">

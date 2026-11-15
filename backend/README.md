@@ -22,7 +22,7 @@ In another terminal run the frontend (`npm run dev` in the project root). Vite p
 - Guests can book/order without an account. They look things up with **reference + email**; wrong email returns 404 (no enumeration).
 - Consultation photos are validated (type, size, magic bytes), stored under random names, and only streamed to admins.
 - M-Pesa callback is authenticated by a secret URL segment, amount-checked, and idempotent. Late payments after a hold expired are flagged `needs_review` instead of being lost.
-- Seed data comes from the frontend demo data (`npm run seed:generate` regenerates `seed/*.json`). Prices/stock are still **sample values**: change them through the admin API or the DB.
+- `seed/*.json` holds only your real services and business rules (products, gallery and testimonials start empty). Tests use `tests/fixtures/seed` via `SEED_DIR`.
 
 ## Payments
 `PAYMENTS_MODE=mock` (default) completes payments instantly and moves no money. For real payments set `PAYMENTS_MODE=daraja` plus the `MPESA_*` variables; the callback URL is

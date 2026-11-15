@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
-import { all, cancelOrderTx, get, run, sweepExpired, tx } from "../db.js";
+import { all, cancelOrderTx, changeStock, get, sweepExpired, tx } from "../db.js";
 import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { optionalAuth } from "../lib/auth.js";
 import { email, phone } from "../lib/schemas.js";
@@ -42,11 +42,11 @@ ordersRouter.post("/orders", optionalAuth, asyncHandler(async (req, res) => {
 
   await sweepExpired();
   const ref = reference("ORD");
-  await tx(async () => {
+  await tx(async (t$) => {
     const lines: { slug: string; name: string; price: number; qty: number }[] = [];
     const problems: Record<string, string> = {};
     for (const [slug, qty] of wanted) {
-      const p = await get<any>("SELECT slug,name,price,stock FROM products WHERE slug=$1", slug);
+      const p = await t$.get<any>("SELECT slug,name,price,stock FROM products WHERE slug=$1 FOR UPDATE", slug);
       if (!p) problems[slug] = "Product not found";
       else if (qty > MAX_QTY_PER_LINE) problems[slug] = `Maximum ${MAX_QTY_PER_LINE} per product`;
       else if (qty > p.stock) problems[slug] = p.stock === 0 ? "Out of stock" : `Only ${p.stock} left`;
@@ -56,15 +56,14 @@ ordersRouter.post("/orders", optionalAuth, asyncHandler(async (req, res) => {
 
     const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
     const fee = o.method === "delivery" ? site.checkout.deliveryAreas.find((a) => a.id === o.area)!.fee : 0;
-    const r = await run(`INSERT INTO orders (reference,user_id,name,phone,email,method,area,address,subtotal,delivery_fee,total,payment_method,status,expires_at,created_at)
+    const r = await t$.run(`INSERT INTO orders (reference,user_id,name,phone,email,method,area,address,subtotal,delivery_fee,total,payment_method,status,expires_at,created_at)
                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, 'pending_payment', $13, $14) RETURNING id`,
       ref, req.user?.id ?? null, o.name, o.phone, o.email, o.method, o.method === "delivery" ? o.area! : null, o.method === "delivery" ? o.address! : null,
       subtotal, fee, subtotal + fee, o.payment, plusMinutesIso(config.holdMinutes), nowIso());
     const orderId = Number(r.rows[0].id);
     for (const l of lines) {
-      const u = await run("UPDATE products SET stock = stock - $1 WHERE slug=$2 AND stock >= $3", l.qty, l.slug, l.qty);
-      if (u.rowCount !== 1) throw new HttpError(409, "Some items are unavailable", { [l.slug]: "Out of stock" });
-      await run("INSERT INTO order_items (order_id,product_slug,name,unit_price,quantity) VALUES ($1,$2,$3,$4,$5)", orderId, l.slug, l.name, l.price, l.qty);
+      await changeStock(t$, l.slug, -l.qty, `Order ${ref} placed`, "sale", orderId);
+      await t$.run("INSERT INTO order_items (order_id,product_slug,name,unit_price,quantity) VALUES ($1,$2,$3,$4,$5)", orderId, l.slug, l.name, l.price, l.qty);
     }
   });
   const orderRow = await get("SELECT * FROM orders WHERE reference=$1", ref);

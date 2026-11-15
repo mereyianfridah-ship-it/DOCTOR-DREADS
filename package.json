@@ -9,8 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build:strict": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "photos": "node scripts/fetch-photos.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

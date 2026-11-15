@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { createApp } from "../src/app.js";
-import { get, run, initDb, seedIfEmpty } from "../src/db.js";
+import { all, get, run, initDb, seedIfEmpty } from "../src/db.js";
 import { addDays, todayEAT } from "../src/lib/util.js";
 import { testOutbox } from "../src/lib/mailer.js";
 import { sendDueReminders } from "../src/lib/reminders.js";
@@ -259,6 +259,28 @@ describe("orders", () => {
     await api().get("/api/products");
     expect(await stockOf(s)).toBe(before);
     expect((await api().post("/api/payments/mpesa/stk").send({ kind: "order", reference: b.body.order.reference, email: guest.email })).status).toBe(409);
+  });
+  it("records sales and returned stock in the stock history", async () => {
+    const s = "strong-hold-moulding-gel";
+    const movements = async () => await all<any>("SELECT change_type, previous_stock, new_stock, reason, order_id FROM stock_movements WHERE product_slug=? ORDER BY id", s);
+    const base = (await movements()).length;
+    const before = await stockOf(s);
+    const o = await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: s, quantity: 2 }] });
+    expect(o.status).toBe(201);
+    let rows = (await movements()).slice(base);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ change_type: "sale", previous_stock: before, new_stock: before - 2 });
+    expect(rows[0].reason).toContain(o.body.order.reference);
+    await api().post(`/api/orders/${o.body.order.reference}/cancel`).send({ email: guest.email });
+    rows = (await movements()).slice(base);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ change_type: "refund", previous_stock: before - 2, new_stock: before });
+    // A refused order (product is out of stock) must leave no history behind.
+    const out = "scalp-soothing-cream"; // stock 0
+    const outBefore = (await all<any>("SELECT id FROM stock_movements WHERE product_slug=?", out)).length;
+    const refused = await api().post("/api/orders").send({ ...guest, method: "collection", payment: "mpesa", items: [{ productId: out, quantity: 1 }] });
+    expect(refused.status).toBe(409);
+    expect((await all<any>("SELECT id FROM stock_movements WHERE product_slug=?", out)).length).toBe(outBefore);
   });
   it("signed-in users see their own orders/bookings in account", async () => {
     const l = await api().post("/api/auth/login").send({ email: customer.email, password: customer.password });

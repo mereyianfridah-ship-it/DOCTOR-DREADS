@@ -79,7 +79,7 @@ function ProductView({ slug }: { slug: string }) {
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brown">{product.category}</p>
               <h1 className="mt-2 text-4xl sm:text-5xl">{product.name}</h1>
               <p className="mt-4 text-3xl font-bold">{formatKSh(product.price)}</p>
-              <p className="mt-1 text-sm text-charcoal/60">{product.size} · sample price</p>
+              <p className="mt-1 text-sm text-charcoal/60">{product.size}</p>
               <p className={`mt-3 text-sm font-semibold ${status.tone === "out" ? "text-red-700" : status.tone === "low" ? "text-brown" : "text-olive"}`}>{status.label}</p>
               <p className="mt-6 text-lg leading-relaxed text-charcoal/75">{product.description}</p>
 

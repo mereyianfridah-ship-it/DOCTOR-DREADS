@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { PackageSearch } from "lucide-react";
 import { Button } from "../components/common/Button";
 import { CategoryFilter } from "../components/common/CategoryFilter";
-import { DemoNotice } from "../components/common/DemoNotice";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
 import { SearchBar } from "../components/common/SearchBar";
@@ -60,9 +59,6 @@ export default function Shop() {
       <PageHeader eyebrow="Shop" title="Hair-care essentials" description="Moisturizers, moulding gels, natural oils and accessories for healthy locs and natural hair." />
       <section className="section">
         <div className="container-page">
-          <DemoNotice className="mb-8">
-            <strong>Demonstration catalogue.</strong> Products, prices (KSh) and stock levels are samples, not real inventory.
-          </DemoNotice>
           <QueryState loading={status === "loading"} error={status === "error" ? error : null} onRetry={() => void reload()}>
           <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
             <SearchBar value={query} onChange={setQuery} />

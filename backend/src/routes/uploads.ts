@@ -67,6 +67,7 @@ uploadsRouter.post(
 );
 
 const MAX_PRODUCT_IMAGES = 5;
+/** Legacy bundled sample images (removed from the project) never count as real photos. */
 const isPlaceholder = (u: string) => u.startsWith("/images/");
 
 uploadsRouter.post(
@@ -82,7 +83,7 @@ uploadsRouter.post(
     if (!product) throw notFound("Product");
 
     const existing = safeParseImages(product.images);
-    // Bundled sample SVGs are not real photos: they do not count toward the limit and are replaced.
+    // Any leftover bundled sample image from older data is dropped on the first real upload.
     const real = existing.filter((u) => !isPlaceholder(u));
     if (real.length >= MAX_PRODUCT_IMAGES) throw new HttpError(400, `A product can have at most ${MAX_PRODUCT_IMAGES} photos`);
 

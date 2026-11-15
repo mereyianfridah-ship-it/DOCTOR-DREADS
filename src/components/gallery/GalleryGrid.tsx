@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Play, X } from "lucide-react";
 import type { GalleryItem } from "../../types";
 import { BeforeAfter } from "./BeforeAfter";
-import { PreviewImage } from "../common/PreviewImage";
-import { galleryImage } from "../../utils/placeholderImages";
+import { SafeImage } from "../common/SafeImage";
 
 function GalleryImage({ g, index, setActive }: { g: GalleryItem; index: number; setActive: (i: number) => void }) {
   return (
@@ -14,9 +13,8 @@ function GalleryImage({ g, index, setActive }: { g: GalleryItem; index: number; 
         className="group relative block w-full overflow-hidden rounded-2xl bg-cream text-left"
         aria-label={`Open ${g.title}`}
       >
-        <PreviewImage
+        <SafeImage
           src={g.image}
-          preview={galleryImage(g.category, g.id)}
           alt={g.title}
           loading="lazy"
           decoding="async"
@@ -90,7 +88,7 @@ export function GalleryGrid({ items }: { items: GalleryItem[] }) {
             {current.afterImage ? (
               <BeforeAfter before={current.image} after={current.afterImage} title={current.title} />
             ) : (
-              <PreviewImage src={current.image} alt={current.title} className="max-h-[75vh] w-full rounded-2xl object-contain" />
+              <SafeImage src={current.image} alt={current.title} className="max-h-[75vh] w-full rounded-2xl object-contain" />
             )}
             <p className="mt-4 text-center text-offwhite">{current.title}</p>
             {current.isVideo && (

@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { ApiError, errorMessage } from "../api/client";
 import { createBooking, getAvailability, getClosures } from "../api/endpoints";
 import { Button, ButtonLink } from "../components/common/Button";
-import { DemoNotice } from "../components/common/DemoNotice";
+import { InfoNotice } from "../components/common/InfoNotice";
 import { FormField } from "../components/common/FormField";
 import { HoldCountdown } from "../components/common/HoldCountdown";
 import { PageHeader } from "../components/common/PageHeader";
@@ -366,10 +366,10 @@ function BookingFlow({ rules, services, getService }: { rules: NonNullable<Retur
                 </p>
                 {deposit !== null && <p className="mt-1 font-display text-4xl">{formatKSh(deposit)}</p>}
               </div>
-              <DemoNotice className="mt-6">
+              <InfoNotice className="mt-6">
                 Choosing <strong>Hold this slot</strong> reserves it for a short time. <strong>Your appointment is not confirmed until the deposit is received.</strong> Online
                 M-Pesa and card deposit payment is not available yet.
-              </DemoNotice>
+              </InfoNotice>
               {submitError && <p role="alert" className="mt-4 text-sm text-red-700">{submitError}</p>}
               <div className="mt-6 flex items-center justify-between gap-3">
                 <Button variant="ghost" onClick={back} disabled={submitting}>Back</Button>

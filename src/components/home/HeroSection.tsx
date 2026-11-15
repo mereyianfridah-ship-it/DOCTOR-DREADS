@@ -6,7 +6,6 @@ export function HeroSection() {
     <section className="relative isolate flex min-h-[calc(100svh-5rem)] items-center overflow-hidden bg-charcoal">
       <SiteImage
         slot="hero"
-        fallback="/images/hero.svg"
         width={1920}
         aria-hidden
         loading="eager"

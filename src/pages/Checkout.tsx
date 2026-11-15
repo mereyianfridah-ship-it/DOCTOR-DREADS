@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { ApiError, errorMessage } from "../api/client";
 import { createOrder } from "../api/endpoints";
 import { Button, ButtonLink } from "../components/common/Button";
-import { DemoNotice } from "../components/common/DemoNotice";
+import { InfoNotice } from "../components/common/InfoNotice";
 import { EmptyState } from "../components/common/EmptyState";
 import { FormField } from "../components/common/FormField";
 import { PageHeader } from "../components/common/PageHeader";
@@ -160,7 +160,6 @@ function CheckoutForm({ rules }: { rules: NonNullable<ReturnType<typeof useCatal
               <FormField label="Delivery address" htmlFor="k-address" error={errors.address?.message}>
                 <textarea id="k-address" rows={3} autoComplete="street-address" className={`input-base ${errors.address ? "input-error" : ""}`} {...register("address")} />
               </FormField>
-              <p className="text-xs text-charcoal/55">Delivery charges are sample values pending confirmation by the business.</p>
             </>
           )}
         </fieldset>
@@ -177,10 +176,10 @@ function CheckoutForm({ rules }: { rules: NonNullable<ReturnType<typeof useCatal
               <CreditCard className="h-5 w-5" aria-hidden /> <span className="text-sm font-medium">Card</span>
             </label>
           </div>
-          <DemoNotice>
+          <InfoNotice>
             Online orders must be <strong>paid in full</strong> before they are processed. There is no cash on delivery or collection. <strong>Online payment is not available yet</strong>: placing
             this order reserves your items for a short time, but it will not be processed until payment is received.
-          </DemoNotice>
+          </InfoNotice>
         </fieldset>
       </div>
 

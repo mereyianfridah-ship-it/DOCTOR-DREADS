@@ -53,16 +53,6 @@
       "id": "auto",
       "name": "Assign automatically",
       "note": "We'll match you with an available stylist"
-    },
-    {
-      "id": "stylist-a",
-      "name": "Stylist A (demo)",
-      "note": "Placeholder profile"
-    },
-    {
-      "id": "stylist-b",
-      "name": "Stylist B (demo)",
-      "note": "Placeholder profile"
     }
   ]
 }

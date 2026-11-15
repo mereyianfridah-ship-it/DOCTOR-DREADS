@@ -2,7 +2,7 @@ import { Router } from "express";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { config } from "../config.js";
-import { all, get, run, sweepExpired, tx, type Tx } from "../db.js";
+import { all, changeStock, get, run, sweepExpired, tx, type Tx } from "../db.js";
 import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { optionalAuth } from "../lib/auth.js";
 import { stkPush } from "../lib/mpesa.js";
@@ -39,7 +39,7 @@ async function settle(t$: Tx, paymentId: number, receipt: string): Promise<void>
         if ((prod?.stock ?? 0) < i.quantity) { review = 1; break; }
       }
       if (!review) {
-        for (const i of items) await t$.run("UPDATE products SET stock = stock - $1 WHERE slug=$2", i.quantity, i.product_slug);
+        for (const i of items) await changeStock(t$, i.product_slug, -i.quantity, `Order ${o.reference}: late payment re-reserved stock`, "sale", o.id);
         await t$.run("UPDATE orders SET status='paid', expires_at=NULL WHERE id=$1", o.id);
       }
     }

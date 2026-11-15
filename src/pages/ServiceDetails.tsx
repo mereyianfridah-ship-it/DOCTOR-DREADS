@@ -1,16 +1,15 @@
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, CalendarCheck, Check, Clock, MessageCircle, Tag } from "lucide-react";
 import { ButtonLink } from "../components/common/Button";
-import { DemoNotice } from "../components/common/DemoNotice";
+import { InfoNotice } from "../components/common/InfoNotice";
 import { SectionHeading } from "../components/common/SectionHeading";
 import { PriceLabel } from "../components/services/PriceLabel";
 import { ServiceCard } from "../components/services/ServiceCard";
 import { QueryState } from "../components/common/QueryState";
 import { useCatalog } from "../context/CatalogContext";
 import NotFound from "./NotFound";
-import { PreviewImage } from "../components/common/PreviewImage";
+import { SafeImage } from "../components/common/SafeImage";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import { serviceImage } from "../utils/placeholderImages";
 
 export default function ServiceDetails() {
   const { slug = "" } = useParams();
@@ -36,10 +35,9 @@ function ServiceView({ slug }: { slug: string }) {
           <Link to="/services" className="mb-8 inline-flex items-center gap-2 text-sm font-medium text-brown hover:underline">
             <ArrowLeft className="h-4 w-4" /> All services
           </Link>
-          <div className="grid gap-12 lg:grid-cols-2">
-            <PreviewImage
+          <div className={`grid gap-12 ${service.image ? "lg:grid-cols-2" : ""}`}>
+            <SafeImage
               src={service.image}
-              preview={serviceImage(service.slug)}
               alt={service.name}
               className="aspect-[4/5] w-full rounded-2xl object-cover"
             />
@@ -76,10 +74,10 @@ function ServiceView({ slug }: { slug: string }) {
               <div className="mt-10">
                 {consultation ? (
                   <>
-                    <DemoNotice className="mb-5">
+                    <InfoNotice className="mb-5">
                       <MessageCircle className="mr-1 inline h-4 w-4" aria-hidden />
                       This service needs a consultation first so we can give you an accurate plan and quote.
-                    </DemoNotice>
+                    </InfoNotice>
                     <div className="flex flex-col gap-3 sm:flex-row">
                       <ButtonLink to="/consultation" size="lg">Start a Consultation</ButtonLink>
                       <ButtonLink to="/contact" variant="outline" size="lg">Ask a Question</ButtonLink>

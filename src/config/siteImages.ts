@@ -10,14 +10,12 @@ export interface SiteImageSlotInfo {
   hint: string;
   /** Decorative backgrounds have no alt text. */
   decorative: boolean;
-  /** Bundled default shown until the owner uploads a photo. */
-  fallback: string;
 }
 
 export const SITE_IMAGE_INFO: SiteImageSlotInfo[] = [
-  { slot: "hero", label: "Hero photo", where: "Big banner at the top of the home page", hint: "Wide (landscape), at least 1600 px across. Keep the subject away from the left side, where the headline sits.", decorative: true, fallback: "/images/hero.svg" },
-  { slot: "welcome-1", label: "Welcome photo 1", where: "Home page, “Where Loc Culture Meets Professional Care” (left)", hint: "Portrait (4:5), at least 800 px wide.", decorative: false, fallback: "/images/about-2.svg" },
-  { slot: "welcome-2", label: "Welcome photo 2", where: "Home page, “Where Loc Culture Meets Professional Care” (right)", hint: "Portrait (4:5), at least 800 px wide.", decorative: false, fallback: "/images/about.svg" },
-  { slot: "about", label: "About page photo", where: "Top of the About page", hint: "Portrait (4:5), at least 800 px wide.", decorative: false, fallback: "/images/about.svg" },
-  { slot: "cta", label: "Booking banner", where: "Background of “Ready to start your loc journey?” near the bottom of the home page", hint: "Wide (landscape), at least 1600 px across. A dark overlay is added on top.", decorative: true, fallback: "/images/service-styling.svg" },
+  { slot: "hero", label: "Hero photo", where: "Big banner at the top of the home page", hint: "Wide (landscape), at least 1600 px across. Keep the subject away from the left side, where the headline sits.", decorative: true },
+  { slot: "welcome-1", label: "Welcome photo 1", where: "Home page, “Where Loc Culture Meets Professional Care” (left)", hint: "Portrait (4:5), at least 800 px wide.", decorative: false },
+  { slot: "welcome-2", label: "Welcome photo 2", where: "Home page, “Where Loc Culture Meets Professional Care” (right)", hint: "Portrait (4:5), at least 800 px wide.", decorative: false },
+  { slot: "about", label: "About page photo", where: "Top of the About page", hint: "Portrait (4:5), at least 800 px wide.", decorative: false },
+  { slot: "cta", label: "Booking banner", where: "Background of “Ready to start your loc journey?” near the bottom of the home page", hint: "Wide (landscape), at least 1600 px across. A dark overlay is added on top.", decorative: true },
 ];

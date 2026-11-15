@@ -86,19 +86,48 @@ function StockTab() {
   );
 }
 
+const MOVEMENT_LABELS: Record<string, string> = {
+  sale: "Sold online",
+  refund: "Returned to stock",
+  increase: "Stock added",
+  decrease: "Stock removed",
+  adjustment: "Edited by admin",
+};
+
 function HistoryTab() {
-  const { data, loading, error, reload } = useAsync((s) => adminStockMovements({ limit: 200 }, s), []);
-  const rows = data ?? [];
+  const products = useAsync((s) => adminProducts({ limit: 200 }, s), []);
+  const [slug, setSlug] = useState("");
+  const [kind, setKind] = useState("");
+  const { data, loading, error, reload } = useAsync((s) => adminStockMovements({ slug: slug || undefined, limit: 300 }, s), [slug]);
+  const rows = (data ?? []).filter((m) => !kind || m.type === kind);
+  const sold = rows.filter((m) => m.type === "sale").reduce((n, m) => n + Math.abs(m.delta), 0);
+  const returned = rows.filter((m) => m.type === "refund").reduce((n, m) => n + m.delta, 0);
   return (
     <QueryState loading={loading} error={error} onRetry={reload}>
-      <DataTable head={["When", "Product", "Change", "Stock", "Reason"]} empty={rows.length ? undefined : "No stock movements yet."}>
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className="text-sm font-medium">Product
+          <select value={slug} onChange={(e) => setSlug(e.target.value)} className="input-base mt-1 !w-64">
+            <option value="">All products</option>
+            {(products.data ?? []).map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
+          </select>
+        </label>
+        <label className="text-sm font-medium">What happened
+          <select value={kind} onChange={(e) => setKind(e.target.value)} className="input-base mt-1 !w-52">
+            <option value="">Everything</option>
+            {Object.entries(MOVEMENT_LABELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+        </label>
+        <p className="pb-2 text-sm text-charcoal/65">{sold} sold · {returned} returned to stock (in the list below)</p>
+      </div>
+      <DataTable head={["When", "Product", "What happened", "Change", "Stock", "Reason"]} empty={rows.length ? undefined : "No stock movements yet."}>
         {rows.map((m) => (
           <tr key={m.id}>
             <td className="px-4 py-3 whitespace-nowrap">{new Date(m.createdAt).toLocaleString("en-KE", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Nairobi" })}</td>
             <td className="px-4 py-3">{m.productName}</td>
+            <td className="px-4 py-3">{MOVEMENT_LABELS[m.type] ?? m.type}</td>
             <td className={`px-4 py-3 font-medium ${m.delta < 0 ? "text-red-700" : "text-green-700"}`}>{m.delta > 0 ? `+${m.delta}` : m.delta}</td>
             <td className="px-4 py-3">{m.previousStock} → {m.newStock}</td>
-            <td className="px-4 py-3">{m.reason}{m.orderId ? ` (order #${m.orderId})` : ""}</td>
+            <td className="px-4 py-3">{m.reason}</td>
           </tr>
         ))}
       </DataTable>

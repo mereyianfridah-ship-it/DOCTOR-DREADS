@@ -2,6 +2,7 @@ import { Pool, type QueryResult, type Client as PgClient } from "pg";
 import { config } from "./config.js";
 import { nowIso } from "./lib/util.js";
 import { runMigrations } from "./lib/migrator.js";
+import { HttpError } from "./lib/errors.js";
 
 const pgPoolConfig: any = {
   connectionString: config.databaseUrl,
@@ -201,7 +202,7 @@ export async function sweepExpired(): Promise<void> {
     );
     for (const o of expiredOrders) {
       await t$.run("UPDATE orders SET status='expired' WHERE id=$1", o.id);
-      await restoreStock(o.id, t$);
+      await restoreStock(o.id, t$, "expired unpaid");
     }
     await t$.run(
       "UPDATE bookings SET status='expired' WHERE status='pending_deposit' AND expires_at < $1",
@@ -211,19 +212,44 @@ export async function sweepExpired(): Promise<void> {
 }
 
 /**
- * Put an order's reserved stock back. Must be called inside a transaction using
- * that transaction's query helpers so the stock restore is part of the same atomic unit.
+ * Change a product's stock inside a transaction and record it in stock_movements.
+ * The product row is locked first so the recorded before/after values are exact.
+ * `delta` is negative for a sale, positive for a restock/refund. Returns null if the product is gone.
  */
-export async function restoreStock(orderId: number, t$: Tx): Promise<void> {
+export async function changeStock(
+  t$: Tx,
+  slug: string,
+  delta: number,
+  reason: string,
+  type: "sale" | "refund" | "increase" | "decrease" | "adjustment",
+  orderId: number | null = null
+): Promise<{ previous: number; stock: number } | null> {
+  const row = await t$.get<{ stock: number }>("SELECT stock FROM products WHERE slug=$1 FOR UPDATE", slug);
+  if (!row) return null;
+  const next = row.stock + delta;
+  if (next < 0) throw new HttpError(409, "Some items are unavailable", { [slug]: "Out of stock" });
+  await t$.run("UPDATE products SET stock=$1, updated_at=NOW() WHERE slug=$2", next, slug);
+  if (delta !== 0) {
+    await t$.run(
+      "INSERT INTO stock_movements (product_slug, order_id, previous_stock, new_stock, reason, change_type) VALUES ($1,$2,$3,$4,$5,$6)",
+      slug, orderId, row.stock, next, reason, type
+    );
+  }
+  return { previous: row.stock, stock: next };
+}
+
+/**
+ * Put an order's reserved stock back and record each line in the stock history.
+ * Must be called inside a transaction using that transaction's query helpers.
+ */
+export async function restoreStock(orderId: number, t$: Tx, why = "cancelled"): Promise<void> {
+  const order = await t$.get<{ reference: string }>("SELECT reference FROM orders WHERE id=$1", orderId);
   const items = await t$.all<{ product_slug: string; quantity: number }>(
     "SELECT product_slug, quantity FROM order_items WHERE order_id=$1 FOR UPDATE",
     orderId
   );
   for (const i of items) {
-    await t$.run(
-      "UPDATE products SET stock = stock + $1 WHERE slug=$2",
-      i.quantity, i.product_slug
-    );
+    await changeStock(t$, i.product_slug, i.quantity, `Order ${order?.reference ?? "#" + orderId} ${why}: stock returned`, "refund", orderId);
   }
 }
 
@@ -253,7 +279,7 @@ export async function cancelOrderTx(
   return { changed: true, previousStatus: row.status };
 }
 
-/** Seed demo data if tables are empty. */
+/** Load the starting services and business rules from seed/*.json when the database is empty. */
 export async function seedIfEmpty(): Promise<void> {
   const { seedJson } = await import("./config.js");
   const count = await get<{ n: number }>("SELECT COUNT(*) AS n FROM services");

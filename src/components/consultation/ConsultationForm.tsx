@@ -10,7 +10,7 @@ import { ApiError, errorMessage } from "../../api/client";
 import { submitConsultation } from "../../api/endpoints";
 import { useAuth } from "../../context/AuthContext";
 import { Button, ButtonLink } from "../common/Button";
-import { DemoNotice } from "../common/DemoNotice";
+import { InfoNotice } from "../common/InfoNotice";
 import { FormField } from "../common/FormField";
 import { BookingStepper } from "../booking/BookingStepper";
 import { rememberGuestEmail } from "../../utils/guestAccess";
@@ -246,10 +246,10 @@ export function ConsultationForm() {
                 <div key={k} className="flex justify-between gap-6 py-3 text-sm"><dt className="text-charcoal/60">{k}</dt><dd className="text-right font-medium">{val}</dd></div>
               ))}
             </dl>
-            <DemoNotice>
+            <InfoNotice>
               {onlineFree ? "Online photo consultations are free, subject to the business's stated policy. " : ""}
               In-person consultation fee: {fee === null ? "to be confirmed by the business" : formatKSh(fee)}.
-            </DemoNotice>
+            </InfoNotice>
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-charcoal/15 bg-white p-4 text-sm">
               <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#79543B]" {...register("marketingConsent")} />
               <span><strong>Optional:</strong> I agree to receive occasional offers and news from Dr Dread Kenya. This is separate from my consultation request and I can opt out any time.</span>

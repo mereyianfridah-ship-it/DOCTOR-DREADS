@@ -2,17 +2,15 @@ import { Clock } from "lucide-react";
 import type { Service } from "../../types";
 import { ButtonLink } from "../common/Button";
 import { PriceLabel } from "./PriceLabel";
-import { PreviewImage } from "../common/PreviewImage";
-import { serviceImage } from "../../utils/placeholderImages";
+import { SafeImage } from "../common/SafeImage";
 
 export function ServiceCard({ service, showDuration = false }: { service: Service; showDuration?: boolean }) {
   const consultation = service.bookingType === "consultation";
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-charcoal/10 bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl">
       <div className="relative aspect-[4/5] overflow-hidden bg-cream">
-        <PreviewImage
+        <SafeImage
           src={service.image}
-          preview={serviceImage(service.slug)}
           alt={service.name}
           loading="lazy"
           decoding="async"

@@ -2,14 +2,10 @@ import type { ImgHTMLAttributes } from "react";
 import type { SiteImageSlot } from "../../config/siteImages";
 import { useSiteImage } from "../../hooks/useSiteImages";
 import { optimizedUrl } from "../../utils/cloudinary";
-import { PreviewImage } from "./PreviewImage";
+import { SafeImage } from "./SafeImage";
 
 type Props = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "alt"> & {
   slot: SiteImageSlot;
-  /** Bundled image used until the owner uploads one. */
-  fallback: string;
-  /** Developer preview photo for the fallback (see PreviewImage). */
-  preview?: string;
   /** Widest size this image is ever shown at, in px. */
   width?: number;
   /** Alt text used when the owner didn't write one. Leave empty for decorative backgrounds. */
@@ -17,19 +13,12 @@ type Props = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "alt"> & {
 };
 
 /**
- * An image the owner can replace from Admin > Images. Until the lookup finishes it shows a plain
- * block of the same size, so the page never flashes the default photo before the real one.
+ * An image the owner uploads from Admin > Images. Until the lookup finishes it shows a plain block of
+ * the same size; if the owner has not uploaded one, nothing is drawn.
  */
-export function SiteImage({ slot, fallback, preview, width = 1200, alt = "", className, ...rest }: Props) {
+export function SiteImage({ slot, width = 1200, alt = "", className, ...rest }: Props) {
   const { loaded, image } = useSiteImage(slot);
   if (!loaded) return <div aria-hidden className={`${className ?? ""} bg-charcoal/10`} />;
-  return (
-    <PreviewImage
-      {...rest}
-      className={className}
-      src={image ? optimizedUrl(image.url, width) : fallback}
-      preview={image ? undefined : preview}
-      alt={image?.alt || alt}
-    />
-  );
+  if (!image) return null;
+  return <SafeImage {...rest} className={className} src={optimizedUrl(image.url, width)} alt={image.alt || alt} />;
 }

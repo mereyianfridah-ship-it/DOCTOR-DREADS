@@ -12,7 +12,6 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "seed:generate": "tsx scripts/generate-seed.ts",
     "create-admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
