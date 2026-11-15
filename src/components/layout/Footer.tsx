@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { MapPin } from "lucide-react";
 import { siteConfig } from "../../config/site";
 import { useCatalog } from "../../context/CatalogContext";
+import { useBusiness } from "../../hooks/useBusiness";
 import { SocialIcon } from "../common/SocialIcon";
 import { BrandMark } from "./BrandMark";
 
@@ -25,7 +26,7 @@ function ContactLine({ text, href }: { text: string; href: string | null }) {
 }
 
 export function Footer() {
-  const { contact, social } = siteConfig;
+  const { contact, social, location } = useBusiness();
   const { services } = useCatalog();
   return (
     <footer className="bg-charcoal text-cream/80">
@@ -33,7 +34,7 @@ export function Footer() {
         <div>
           <BrandMark light />
           <p className="mt-5 max-w-xs text-sm leading-relaxed">
-            Dreadlocks services and natural hair-care essentials in {siteConfig.location}.
+            Dreadlocks services and natural hair-care essentials in {location}.
           </p>
           <ul className="mt-6 flex gap-3">
             {social.filter((s) => s.href).map((s) => (
@@ -83,7 +84,7 @@ export function Footer() {
           <ul className="mt-5 space-y-3 text-sm">
             <li className="flex items-start gap-2">
               <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
-              {siteConfig.location}
+              {location}
             </li>
             {contact.phoneDisplay && <li><ContactLine text={contact.phoneDisplay} href={contact.phoneHref} /></li>}
             {contact.whatsappDisplay && <li><ContactLine text={contact.whatsappDisplay} href={contact.whatsappHref} /></li>}

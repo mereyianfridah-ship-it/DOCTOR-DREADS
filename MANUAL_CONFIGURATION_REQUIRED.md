@@ -2,7 +2,7 @@
 
 | What | Where | Notes |
 |---|---|---|
-| Real phone, WhatsApp, email, opening hours, social links | `src/config/site.ts` (will move to admin settings) | Now empty and hidden on the site until you fill them in |
+| Real phone, WhatsApp, email, opening hours, social links | **Admin > Settings** (no code change needed) | Empty and hidden on the site until you fill them in |
 | Brand logo | `src/components/layout/BrandMark.tsx` | Text mark is temporary |
 | Real service prices, durations, descriptions | Admin → Services (price only today) / `backend/seed/*.json` | Seed prices are **samples** |
 | Real product catalogue, prices, stock, photos | Admin → Products (price/stock only today) | Seed products are samples |
@@ -15,7 +15,7 @@
 | After pulling this change | Run `npm install` in the repo root | `vitest` was added to `package.json`; `package-lock.json` must be refreshed (it could not be regenerated offline). Use `npm install`, not `npm ci`, the first time |
 | Cloudinary | `CLOUDINARY_URL` on Render | Required for any photo upload; `/api/health` shows `cloudinary: configured|missing` |
 | Payments (M-Pesa Daraja, card), email/SMS/WhatsApp | — | Blocked: later phases (payments stay disabled) |
-| Real stylists | `backend/seed/site.json` | Still "Stylist A/B (demo)"; replace before launch |
+| Real stylists | **Admin > Stylists** (no code change needed) | Site shows "Stylist A/B (demo)" until you add your first real stylist |
 
 ## Password reset email (owner action)
 Password reset only works for real customers once email sending is configured. Without it, links are not sent.

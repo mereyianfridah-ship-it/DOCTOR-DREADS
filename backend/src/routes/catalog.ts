@@ -8,6 +8,7 @@ import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { email } from "../lib/schemas.js";
 import { nowIso } from "../lib/util.js";
 import { site } from "../site.js";
+import { stylistChoices } from "../lib/stylists.js";
 
 export const catalogRouter = Router();
 
@@ -34,7 +35,7 @@ const product = (r: any) => ({
 });
 
 /** Business rules the frontend needs (deposit %, delivery areas, stylists, slots). */
-catalogRouter.get("/config", (_req, res) => res.json(site));
+catalogRouter.get("/config", asyncHandler(async (_req, res) => res.json({ ...site, stylists: await stylistChoices() })));
 
 catalogRouter.get("/services", async (req, res) => {
   const { category, bookingType } = req.query;

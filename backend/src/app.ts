@@ -16,6 +16,7 @@ import { paymentsRouter } from "./routes/payments.js";
 import { accountRouter } from "./routes/account.js";
 import { adminRouter, tiktokPublicRouter } from "./routes/admin.js";
 import { uploadsRouter } from "./routes/uploads.js";
+import { settingsRouter } from "./routes/settings.js";
 import { isCloudinaryConfigured } from "./lib/cloudinary.js";
 
 export function createApp() {
@@ -76,7 +77,7 @@ export function createApp() {
   });
 
   app.use("/api/auth", authRouter);
-  app.use("/api", catalogRouter, bookingsRouter, ordersRouter, consultationsRouter, contactRouter, paymentsRouter, accountRouter, adminRouter, uploadsRouter, tiktokPublicRouter);
+  app.use("/api", catalogRouter, bookingsRouter, ordersRouter, consultationsRouter, contactRouter, paymentsRouter, accountRouter, adminRouter, settingsRouter, uploadsRouter, tiktokPublicRouter);
   
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "Not found")));
   app.use(errorHandler);

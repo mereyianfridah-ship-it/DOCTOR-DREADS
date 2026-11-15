@@ -6,7 +6,8 @@ import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { optionalAuth } from "../lib/auth.js";
 import { email, fullName, phone } from "../lib/schemas.js";
 import { addDays, addMinutesToHhmm, dayOfWeek, isValidISODate, overlaps, overlapsWithDuration, plusMinutesIso, reference, todayEAT, nowIso } from "../lib/util.js";
-import { realStylists, site } from "../site.js";
+import { site } from "../site.js";
+import { activeStylists } from "../lib/stylists.js";
 import { rescheduleEligibility } from "../lib/reschedule.js";
 import { sendMail } from "../lib/mailer.js";
 
@@ -40,6 +41,7 @@ export function stylistIsFree(windows: Window[], stylistId: string, start: strin
 bookingsRouter.get("/availability", async (req, res) => {
   const q = z.object({ date: z.string(), stylist: z.string().default("auto") }).parse(req.query);
   checkDate(q.date);
+  const realStylists = await activeStylists();
   if (q.stylist !== "auto" && !realStylists.some((s) => s.id === q.stylist)) throw new HttpError(400, "Unknown stylist");
   await sweepExpired();
   const open = isOpen(q.date);
@@ -95,6 +97,8 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
   checkDate(b.date);
   if (!isOpen(b.date)) throw new HttpError(400, "The salon is closed on that day", { date: "Closed on this day" });
   if (!site.booking.slots.includes(b.time)) throw new HttpError(400, "Invalid time slot", { time: "Invalid time slot" });
+  const realStylists = await activeStylists();
+  if (realStylists.length === 0) throw new HttpError(409, "Online booking is paused right now: please contact the salon");
   if (b.stylist !== "auto" && !realStylists.some((s) => s.id === b.stylist)) throw new HttpError(400, "Unknown stylist", { stylist: "Unknown stylist" });
   const svc = await get<any>("SELECT * FROM services WHERE slug=$1", b.serviceSlug);
   if (!svc) throw notFound("Service");
@@ -168,6 +172,7 @@ bookingsRouter.post("/bookings/:reference/reschedule", optionalAuth, asyncHandle
   checkDate(body.date);
   if (!isOpen(body.date)) throw new HttpError(400, "The salon is closed on that day", { date: "Closed on this day" });
   if (!site.booking.slots.includes(body.time)) throw new HttpError(400, "Invalid time slot", { time: "Invalid time slot" });
+  const realStylists = await activeStylists();
   if (!["same", "auto"].includes(body.stylist) && !realStylists.some((s) => s.id === body.stylist)) throw new HttpError(400, "Unknown stylist", { stylist: "Unknown stylist" });
 
   await sweepExpired();

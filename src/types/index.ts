@@ -217,3 +217,38 @@ export interface AdminSummary {
   paymentsNeedingReview: number;
   revenue: number;
 }
+
+/** Owner-editable business details (Admin > Settings). Empty string = not set. */
+export interface BusinessSettings {
+  location: string;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  hours: string;
+  instagram: string;
+  facebook: string;
+  tiktok: string;
+}
+
+/** What the public site reads (same shape as siteConfig.contact / siteConfig.social). */
+export interface BusinessPublic {
+  location: string;
+  contact: {
+    phoneDisplay: string;
+    phoneHref: string | null;
+    whatsappDisplay: string;
+    whatsappHref: string | null;
+    emailDisplay: string;
+    emailHref: string | null;
+    hours: string;
+  };
+  social: { id: string; label: string; href: string | null }[];
+}
+
+export interface AdminStylist {
+  id: string;
+  name: string;
+  note: string;
+  active: boolean;
+  upcomingBookings: number;
+}

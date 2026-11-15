@@ -19,7 +19,7 @@ import { BookingSummary } from "../components/booking/BookingSummary";
 import type { BookingDraft } from "../components/booking/BookingSummary";
 import { DatePicker } from "../components/booking/DatePicker";
 import { PriceLabel } from "../components/services/PriceLabel";
-import { siteConfig } from "../config/site";
+import { useBusiness } from "../hooks/useBusiness";
 import { useAuth } from "../context/AuthContext";
 import { useCatalog } from "../context/CatalogContext";
 import { useAsync } from "../hooks/useAsync";
@@ -87,6 +87,7 @@ function BookingFlow({ rules, services, getService }: { rules: NonNullable<Retur
 
   const service = getService(draft.serviceSlug);
   const stylists = rules.stylists;
+  const { location: salonLocation } = useBusiness();
   const deposit = service && service.priceFrom !== null ? Math.round((service.priceFrom * rules.booking.depositPercent) / 100) : null;
   const patch = (p: Partial<BookingDraft>) => setDraft((d) => ({ ...d, ...p }));
 
@@ -224,7 +225,7 @@ function BookingFlow({ rules, services, getService }: { rules: NonNullable<Retur
                 <Choice selected={draft.location === "salon"} onClick={() => patch({ location: "salon" })}>
                   <Store className="h-6 w-6 text-brown" aria-hidden />
                   <p className="mt-2 font-display text-lg">Physical salon</p>
-                  <p className="text-sm text-charcoal/65">Visit us in {siteConfig.location}</p>
+                  <p className="text-sm text-charcoal/65">Visit us in {salonLocation}</p>
                 </Choice>
                 <Choice selected={draft.location === "mobile"} onClick={() => patch({ location: "mobile" })}>
                   <MapPin className="h-6 w-6 text-brown" aria-hidden />

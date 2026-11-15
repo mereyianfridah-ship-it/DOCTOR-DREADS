@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { PageHeader } from "../components/common/PageHeader";
 import { SocialIcon } from "../components/common/SocialIcon";
 import { ContactForm } from "../components/contact/ContactForm";
-import { siteConfig } from "../config/site";
+import { useBusiness } from "../hooks/useBusiness";
 
 function Row({ icon, label, text, href }: { icon: ReactNode; label: string; text: string; href: string | null }) {
   if (!text) return null;
@@ -19,7 +19,7 @@ function Row({ icon, label, text, href }: { icon: ReactNode; label: string; text
 }
 
 export default function Contact() {
-  const { contact, social } = siteConfig;
+  const { contact, social, location } = useBusiness();
   return (
     <>
       <PageHeader eyebrow="Contact" title="Get in touch" description="Questions about services, products or booking? Send us a message." />
@@ -32,7 +32,7 @@ export default function Contact() {
           <div>
             <h2 className="text-3xl">Find us</h2>
                         <ul className="mt-6 space-y-5">
-              <Row icon={<MapPin className="h-5 w-5" />} label="Location" text={siteConfig.location} href={null} />
+              <Row icon={<MapPin className="h-5 w-5" />} label="Location" text={location} href={null} />
               <Row icon={<Phone className="h-5 w-5" />} label="Phone" text={contact.phoneDisplay} href={contact.phoneHref} />
               <Row icon={<MessageCircle className="h-5 w-5" />} label="WhatsApp" text={contact.whatsappDisplay} href={contact.whatsappHref} />
               <Row icon={<Mail className="h-5 w-5" />} label="Email" text={contact.emailDisplay} href={contact.emailHref} />

@@ -49,3 +49,6 @@ See "Feature round: reviews + appointment reminders" in IMPLEMENTATION_STATUS.md
 ## Round 4: image uploads and hero photo (2026-11-15)
 See "Feature: image uploads and hero photo" in IMPLEMENTATION_STATUS.md. New migration: 017. Not built, not run against a database or Cloudinary.
 
+
+## Round 5: stylists and business settings (2026-11-15)
+See "Feature round: owner-managed stylists + business settings" in IMPLEMENTATION_STATUS.md. New migration: 018. No new env vars. Not built, not run against a database. After deploying, open Admin > Settings and Admin > Stylists and fill them in; this removes two of the "needs the owner" items (contact details, real stylists) without a developer.

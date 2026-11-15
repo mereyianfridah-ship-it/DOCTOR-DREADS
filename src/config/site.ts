@@ -2,8 +2,10 @@
  * Brand-level configuration that the backend does not yet serve.
  * Booking rules, delivery areas and stylists now come from the API (GET /api/config).
  *
- * Contact fields are intentionally EMPTY until the owner supplies real details (see
- * MANUAL_CONFIGURATION_REQUIRED.md). Empty fields are hidden from the site. Set both the
+ * Contact fields are intentionally EMPTY here. The owner now sets the real phone, WhatsApp, email, hours,
+ * location and social links in Admin > Settings (served by GET /api/business, see hooks/useBusiness.ts);
+ * these values are only the fallback shown before that request answers or if it fails. See also
+ * MANUAL_CONFIGURATION_REQUIRED.md. Empty fields are hidden from the site. Set both the
  * *Display text and the *Href together, e.g. phoneDisplay "+254 7xx xxx xxx" and phoneHref "tel:+2547xxxxxxxx".
  */
 export const siteConfig = {

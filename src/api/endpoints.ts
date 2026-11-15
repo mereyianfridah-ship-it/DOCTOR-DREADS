@@ -1,7 +1,10 @@
 import { api } from "./client";
 
 import type {
+  AdminStylist,
   AdminSummary,
+  BusinessPublic,
+  BusinessSettings,
   AuthUser,
   BookingRecord,
   ConsultationNote,
@@ -685,3 +688,23 @@ export const adminUpdateTiktok = (
 
 export const adminDeleteTiktok = (id: number) =>
   api<{ ok: true }>(`/admin/tiktok/${id}`, { method: "DELETE" });
+// ---- business details and stylists --------------------------------------------------------------
+
+export const getBusiness = (signal?: AbortSignal) => api<BusinessPublic>("/business", { signal });
+
+export const adminBusiness = (signal?: AbortSignal) => api<BusinessSettings>("/admin/business", { signal });
+
+export const adminSaveBusiness = (b: BusinessSettings) =>
+  api<BusinessSettings>("/admin/business", { method: "PUT", body: b });
+
+export const adminStylists = (signal?: AbortSignal) =>
+  api<{ managed: boolean; stylists: AdminStylist[] }>("/admin/stylists", { signal });
+
+export const adminAddStylist = (b: { name: string; note: string }) =>
+  api<AdminStylist>("/admin/stylists", { method: "POST", body: b });
+
+export const adminUpdateStylist = (id: string, b: { name?: string; note?: string; active?: boolean }) =>
+  api<{ ok: true; upcomingBookings?: number }>(`/admin/stylists/${encodeURIComponent(id)}`, { method: "PATCH", body: b });
+
+export const adminDeleteStylist = (id: string) =>
+  api<{ ok: true }>(`/admin/stylists/${encodeURIComponent(id)}`, { method: "DELETE" });

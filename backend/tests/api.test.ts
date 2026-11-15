@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { createApp } from "../src/app.js";
@@ -855,5 +855,124 @@ describe("site images (hero etc.) and service photos", () => {
     expect(r.status).toBe(200);
     expect((await api().get(`/api/services/${slug}`)).body.image).toBe("https://res.cloudinary.test/image.jpg");
     expect((await put("/api/uploads/services/nope", jpeg, "s.jpg", "image/jpeg")).status).toBe(404);
+  });
+});
+
+describe("business details (admin settings)", () => {
+  let auth: { Authorization: string };
+  beforeAll(async () => {
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    auth = { Authorization: `Bearer ${tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }))}` };
+    await run("DELETE FROM app_settings WHERE key='business'");
+  });
+
+  it("is empty and public until the owner fills it in", async () => {
+    const r = await api().get("/api/business");
+    expect(r.status).toBe(200);
+    expect(r.body.contact).toMatchObject({ phoneDisplay: "", phoneHref: null, emailHref: null });
+    expect(r.body.social.every((s: any) => s.href === null)).toBe(true);
+  });
+  it("requires an admin to read or change it", async () => {
+    expect((await api().get("/api/admin/business")).status).toBe(401);
+    expect((await api().put("/api/admin/business").send({ phone: "0712345678" })).status).toBe(401);
+    const c = await api().post("/api/auth/login").send({ email: customer.email, password: customer.password });
+    expect((await api().put("/api/admin/business").set("Authorization", `Bearer ${tokenOf(c)}`).send({})).status).toBe(403);
+  });
+  it("rejects bad numbers, emails and unsafe links, naming each field", async () => {
+    const r = await api().put("/api/admin/business").set(auth).send({ phone: "123", email: "nope", instagram: "javascript:alert(1)", facebook: "http://facebook.com/x", tiktok: "https://evil.example/tiktok.com" });
+    expect(r.status).toBe(400);
+    expect(Object.keys(r.body.fields ?? {}).sort()).toEqual(["email", "facebook", "instagram", "phone", "tiktok"]);
+    expect((await api().get("/api/business")).body.contact.phoneDisplay).toBe(""); // nothing was saved
+  });
+  it("saves valid details and serves ready-made links to the public site", async () => {
+    const put = await api().put("/api/admin/business").set(auth).send({
+      location: "Rongai, Kenya", phone: "0712 345 678", whatsapp: "0712345678", email: "hello@example.com",
+      hours: "Mon-Sat 9am-6pm", instagram: "https://www.instagram.com/drdread", facebook: "", tiktok: "",
+    });
+    expect(put.status).toBe(200);
+    expect((await api().get("/api/admin/business").set(auth)).body.phone).toBe("+254712345678");
+    const pub = (await api().get("/api/business")).body;
+    expect(pub.contact).toMatchObject({ phoneDisplay: "+254 712 345 678", phoneHref: "tel:+254712345678", whatsappHref: "https://wa.me/254712345678", emailHref: "mailto:hello@example.com", hours: "Mon-Sat 9am-6pm" });
+    expect(pub.social.find((s: any) => s.id === "instagram").href).toBe("https://www.instagram.com/drdread");
+    expect(pub.social.find((s: any) => s.id === "facebook").href).toBeNull();
+  });
+  it("lets the owner clear a field again", async () => {
+    await api().put("/api/admin/business").set(auth).send({});
+    expect((await api().get("/api/business")).body.contact.phoneDisplay).toBe("");
+  });
+});
+
+describe("stylists (admin)", () => {
+  let auth: { Authorization: string };
+  const date = openDate(4);
+  const booking = (stylist: string, time: string) => ({ serviceSlug: "loc-retouching", location: "salon", date, time, stylist, fullName: "Booker", phone: "0700111222", email: "styl@example.com", notes: "" });
+  const choices = async () => (await api().get("/api/config")).body.stylists.map((s: any) => s.id);
+
+  beforeAll(async () => {
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    auth = { Authorization: `Bearer ${tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }))}` };
+    await run("DELETE FROM bookings WHERE email='styl@example.com'");
+    await run("DELETE FROM stylists");
+    await run("DELETE FROM app_settings WHERE key='stylists_managed'");
+  });
+
+  it("uses the bundled stylists until the owner adds one", async () => {
+    expect(await choices()).toEqual(["auto", "stylist-a", "stylist-b"]);
+    const r = (await api().get("/api/admin/stylists").set(auth)).body;
+    expect(r.managed).toBe(false);
+    expect(r.stylists.length).toBe(2);
+    expect((await api().patch("/api/admin/stylists/stylist-a").set(auth).send({ active: false })).status).toBe(409);
+  });
+  it("requires an admin and validates the name", async () => {
+    expect((await api().post("/api/admin/stylists").send({ name: "Jane" })).status).toBe(401);
+    expect((await api().post("/api/admin/stylists").set(auth).send({ name: "J" })).status).toBe(400);
+    expect(await choices()).toEqual(["auto", "stylist-a", "stylist-b"]); // failed attempts must not switch to managed mode
+  });
+  it("replaces the demo stylists when the first real one is added", async () => {
+    const a = await api().post("/api/admin/stylists").set(auth).send({ name: "Jane Wanjiru", note: "Senior locticians" });
+    expect(a.status).toBe(201);
+    expect(a.body.id).toBe("jane-wanjiru");
+    expect(await choices()).toEqual(["auto", "jane-wanjiru"]);
+    expect((await api().get(`/api/availability?date=${date}&stylist=stylist-a`)).status).toBe(400); // demo stylist is gone
+    const b = await api().post("/api/admin/stylists").set(auth).send({ name: "Jane Wanjiru" });
+    expect(b.body.id).toBe("jane-wanjiru-2"); // same name: unique id, not an error
+    const c = await api().post("/api/admin/stylists").set(auth).send({ name: "Auto" });
+    expect(c.body.id).toBe("auto-2"); // never collides with the reserved "auto"
+  });
+  it("books with a new stylist and keeps them off the list when switched off", async () => {
+    const bk = await api().post("/api/bookings").send(booking("jane-wanjiru", "10:00"));
+    expect(bk.status).toBe(201);
+    expect(bk.body.booking.stylistId).toBe("jane-wanjiru");
+
+    const off = await api().patch("/api/admin/stylists/jane-wanjiru-2").set(auth).send({ active: false });
+    expect(off.status).toBe(200);
+    expect(await choices()).toEqual(["auto", "jane-wanjiru", "auto-2"]);
+    expect((await api().get(`/api/availability?date=${date}&stylist=jane-wanjiru-2`)).status).toBe(400);
+
+    const rename = await api().patch("/api/admin/stylists/jane-wanjiru").set(auth).send({ name: "Jane W.", note: "" });
+    expect(rename.status).toBe(200);
+    expect((await api().get("/api/config")).body.stylists.find((s: any) => s.id === "jane-wanjiru").name).toBe("Jane W.");
+    expect((await api().patch("/api/admin/stylists/nobody").set(auth).send({ active: false })).status).toBe(404);
+  });
+  it("reports upcoming bookings and refuses to delete a stylist with history", async () => {
+    const list = (await api().get("/api/admin/stylists").set(auth)).body;
+    expect(list.managed).toBe(true);
+    expect(list.stylists.find((s: any) => s.id === "jane-wanjiru").upcomingBookings).toBe(1);
+    expect((await api().delete("/api/admin/stylists/jane-wanjiru").set(auth)).status).toBe(409);
+    expect((await api().delete("/api/admin/stylists/auto-2").set(auth)).status).toBe(200);
+    expect((await api().delete("/api/admin/stylists/auto-2").set(auth)).status).toBe(404);
+  });
+  it("pauses online booking cleanly when nobody is active", async () => {
+    await api().patch("/api/admin/stylists/jane-wanjiru").set(auth).send({ active: false });
+    await api().patch("/api/admin/stylists/jane-wanjiru-2").set(auth).send({ active: false });
+    expect(await choices()).toEqual(["auto"]);
+    expect((await api().post("/api/bookings").send(booking("auto", "11:00"))).status).toBe(409);
+    const av = await api().get(`/api/availability?date=${date}&stylist=auto`);
+    expect(av.body.slots.every((s: any) => s.available === false)).toBe(true);
+  });
+  afterAll(async () => {
+    await run("DELETE FROM bookings WHERE email='styl@example.com'");
+    await run("DELETE FROM stylists");
+    await run("DELETE FROM app_settings WHERE key IN ('stylists_managed','business')");
   });
 });
