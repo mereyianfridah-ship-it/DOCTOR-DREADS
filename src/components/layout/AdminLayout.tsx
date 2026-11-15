@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { CalendarDays, CalendarOff, CreditCard, Inbox, LayoutDashboard, MessageSquare, Image as ImageIcon, Package, Star, Scissors, Settings, ShoppingBag, Tag, UserRound, Users, Video } from "lucide-react";
+import { BarChart3, Boxes, CalendarDays, CalendarOff, CreditCard, Inbox, LayoutDashboard, MessageSquare, Image as ImageIcon, Package, Star, Scissors, Settings, ShoppingBag, Tag, UserRound, Users, Video } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 const items = [
@@ -12,6 +12,8 @@ const items = [
   { to: "/admin/payments", label: "Payments", icon: CreditCard, end: false },
   { to: "/admin/images", label: "Images", icon: ImageIcon, end: false },
   { to: "/admin/products", label: "Products", icon: Package, end: false },
+  { to: "/admin/inventory", label: "Inventory", icon: Boxes, end: false },
+  { to: "/admin/reports", label: "Reports", icon: BarChart3, end: false },
   { to: "/admin/services", label: "Services", icon: Scissors, end: false },
   { to: "/admin/closed-days", label: "Closed days", icon: CalendarOff, end: false },
   { to: "/admin/stylists", label: "Stylists", icon: UserRound, end: false },

@@ -52,6 +52,8 @@ const AdminCustomers = lazy(() => import("./pages/admin/AdminCustomers"));
 const AdminTiktok = lazy(() => import("./pages/admin/AdminTiktok"));
 const AdminStylists = lazy(() => import("./pages/admin/AdminStylists"));
 const AdminClosedDays = lazy(() => import("./pages/admin/AdminClosedDays"));
+const AdminReports = lazy(() => import("./pages/admin/AdminReports"));
+const AdminInventory = lazy(() => import("./pages/admin/AdminInventory"));
 const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
 
 const lazyPage = (node: ReactNode) => <Suspense fallback={<LoadingSpinner />}>{node}</Suspense>;
@@ -105,6 +107,8 @@ export default function App() {
                   <Route path="tiktok" element={lazyPage(<AdminTiktok />)} />
                   <Route path="stylists" element={lazyPage(<AdminStylists />)} />
                   <Route path="closed-days" element={lazyPage(<AdminClosedDays />)} />
+                  <Route path="reports" element={lazyPage(<AdminReports />)} />
+                  <Route path="inventory" element={lazyPage(<AdminInventory />)} />
                   <Route path="settings" element={lazyPage(<AdminSettings />)} />
                 </Route>
                 <Route path="privacy" element={<Legal kind="privacy" />} />

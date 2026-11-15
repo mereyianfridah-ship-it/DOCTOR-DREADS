@@ -769,3 +769,60 @@ export interface ClosedDay { date: string; reason: string; affectedBookings: num
 export const adminClosedDays = (signal?: AbortSignal) => api<ClosedDay[]>("/admin/closed-days", { signal });
 export const adminCloseDay = (b: { date: string; reason: string }) => api<ClosedDay>("/admin/closed-days", { method: "POST", body: b });
 export const adminReopenDay = (date: string) => api<{ ok: true }>(`/admin/closed-days/${encodeURIComponent(date)}`, { method: "DELETE" });
+
+/* ------------------------------ Phase 2 admin ------------------------------ */
+
+export interface DayPoint { day: string }
+export interface AdminReport {
+  range: { from: string; to: string };
+  sales: {
+    orders: number; revenue: number; deliveryFees: number; averageOrder: number;
+    byStatus: { status: string; count: number }[];
+    byMethod: { method: string; orders: number; revenue: number }[];
+    byDay: (DayPoint & { orders: number; revenue: number })[];
+    topProducts: { slug: string; name: string; units: number; revenue: number }[];
+  };
+  bookings: {
+    total: number; cancellationRate: number; completed: number;
+    byStatus: { status: string; count: number }[];
+    byService: { name: string; bookings: number; deposits: number }[];
+    byStylist: { stylistId: string; bookings: number }[];
+    byDay: (DayPoint & { bookings: number })[];
+    depositsCollected: number; refundsDue: number; refundsPaid: number;
+  };
+  inventory: {
+    products: number; outOfStock: number; lowStock: number; units: number; stockValue: number;
+    needsAttention: { slug: string; name: string; stock: number; threshold: number }[];
+  };
+  performance: { productRevenue: number; bookingDeposits: number; totalRevenue: number; newCustomers: number };
+}
+export const adminReport = (p: { from?: string; to?: string }, signal?: AbortSignal) =>
+  api<AdminReport>(`/admin/reports${qs(p)}`, { signal });
+
+export interface StockMovement {
+  id: number; productSlug: string; productName: string; previousStock: number; newStock: number;
+  delta: number; reason: string; type: string; orderId: number | null; createdAt: string;
+}
+export const adminAdjustStock = (slug: string, b: { change: number; reason: string }) =>
+  api<{ ok: true; previous: number; stock: number }>(`/admin/products/${encodeURIComponent(slug)}/stock`, { method: "POST", body: b });
+export const adminStockMovements = (p: { slug?: string; limit?: number } = {}, signal?: AbortSignal) =>
+  api<StockMovement[]>(`/admin/stock-movements${qs(p)}`, { signal });
+
+export interface AdminCategory { id: number; name: string; slug: string; description: string; displayOrder: number; active: boolean; products: number }
+export const adminCategories = (signal?: AbortSignal) => api<AdminCategory[]>("/admin/categories", { signal });
+export const adminCreateCategory = (b: { name: string; description?: string }) =>
+  api<{ ok: true; id: number }>("/admin/categories", { method: "POST", body: b });
+export const adminUpdateCategory = (id: number, b: { name?: string; description?: string; displayOrder?: number; active?: boolean }) =>
+  api<{ ok: true }>(`/admin/categories/${id}`, { method: "PATCH", body: b });
+export const adminDeleteCategory = (id: number) => api<{ ok: true }>(`/admin/categories/${id}`, { method: "DELETE" });
+
+export interface AdminService {
+  slug: string; name: string; category: string; shortDescription: string; description: string; benefits: string[];
+  image: string; duration: string; durationMinutes: number; priceFrom: number | null; bookingType: "instant" | "consultation"; featured: boolean;
+}
+export type AdminServiceInput = Omit<AdminService, "slug" | "image">;
+export const adminServices = (signal?: AbortSignal) => api<AdminService[]>("/admin/services", { signal });
+export const adminCreateService = (b: AdminServiceInput) => api<{ ok: true; slug: string }>("/admin/services", { method: "POST", body: b });
+export const adminReplaceService = (slug: string, b: AdminServiceInput) =>
+  api<{ ok: true }>(`/admin/services/${encodeURIComponent(slug)}`, { method: "PUT", body: b });
+export const adminDeleteService = (slug: string) => api<{ ok: true }>(`/admin/services/${encodeURIComponent(slug)}`, { method: "DELETE" });
