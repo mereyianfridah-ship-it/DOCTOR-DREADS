@@ -7,7 +7,7 @@ import { z } from "zod";
 import { CheckCircle2, MapPin, Scissors, Store } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, errorMessage } from "../api/client";
-import { createBooking, getAvailability } from "../api/endpoints";
+import { createBooking, getAvailability, getClosures } from "../api/endpoints";
 import { Button, ButtonLink } from "../components/common/Button";
 import { DemoNotice } from "../components/common/DemoNotice";
 import { FormField } from "../components/common/FormField";
@@ -25,7 +25,7 @@ import { useCatalog } from "../context/CatalogContext";
 import { useAsync } from "../hooks/useAsync";
 import type { BookingRecord } from "../types";
 import { rememberGuestEmail } from "../utils/guestAccess";
-import { formatKSh, formatLongDate } from "../utils/format";
+import { formatKSh, formatLongDate, toISODate } from "../utils/format";
 import { phoneSchema } from "../utils/validation";
 
 // Stylist is chosen before time so the availability shown matches the chosen stylist.
@@ -94,6 +94,13 @@ function BookingFlow({ rules, services, getService }: { rules: NonNullable<Retur
   const today = useMemo(() => new Date(), []);
   const minDate = useMemo(() => new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1), [today]);
   const maxDate = useMemo(() => new Date(today.getFullYear(), today.getMonth(), today.getDate() + rules.booking.advanceDays), [today, rules.booking.advanceDays]);
+
+  // Dates the salon is closed (or every stylist is off) so the picker can grey them out. Failure is harmless: the server re-checks.
+  const closureData = useAsync(
+    (signal) => (step === STEP.date ? getClosures(toISODate(minDate), toISODate(maxDate), "auto", signal) : Promise.resolve(null)),
+    [step, minDate, maxDate],
+  );
+  const closures = useMemo(() => Object.fromEntries((closureData.data?.dates ?? []).map((c) => [c.date, c])), [closureData.data]);
 
   const availability = useAsync(
     (signal) => (draft.date && step === STEP.time ? getAvailability(draft.date, draft.stylist || "auto", signal) : Promise.resolve(null)),
@@ -241,7 +248,7 @@ function BookingFlow({ rules, services, getService }: { rules: NonNullable<Retur
             <div>
               <h2 className="text-3xl">Choose your preferred date</h2>
               <div className="mt-6 max-w-md">
-                <DatePicker value={draft.date} onChange={(iso) => patch({ date: iso, time: "" })} minDate={minDate} maxDate={maxDate} openDays={rules.booking.openDays} />
+                <DatePicker value={draft.date} onChange={(iso) => patch({ date: iso, time: "" })} minDate={minDate} maxDate={maxDate} openDays={rules.booking.openDays} closures={closures} />
               </div>
               {nav}
             </div>
@@ -270,8 +277,16 @@ function BookingFlow({ rules, services, getService }: { rules: NonNullable<Retur
               <div className="mt-6">
                 <QueryState loading={availability.loading} error={availability.error} onRetry={availability.reload} loadingLabel="Checking availability">
                   {availability.data && !availability.data.open ? (
-                    <p className="rounded-xl border border-charcoal/10 bg-white p-5 text-sm">The salon is closed on this day. Please go back and choose another date.</p>
+                    <p className="rounded-xl border border-charcoal/10 bg-white p-5 text-sm">The salon is closed on this day{availability.data.closedReason ? ` (${availability.data.closedReason})` : ""}. Please go back and choose another date.</p>
+                  ) : availability.data?.stylistOff ? (
+                    <p className="rounded-xl border border-charcoal/10 bg-white p-5 text-sm">{stylistName(draft.stylist)} is off on this day{availability.data.stylistOffReason ? ` (${availability.data.stylistOffReason})` : ""}. Please go back and choose another stylist or date.</p>
                   ) : (
+                    <>
+                    {!!availability.data?.closedWindows?.length && (
+                      <p className="mb-4 rounded-xl bg-charcoal/5 p-4 text-sm text-charcoal/75">
+                        Not available: {availability.data.closedWindows.map((w) => `${w.from}–${w.to}${w.reason ? ` (${w.reason})` : ""}`).join(", ")}.
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       {(availability.data?.slots ?? []).map((s) => (
                         <Choice key={s.time} selected={draft.time === s.time} disabled={!s.available} onClick={() => patch({ time: s.time })}>
@@ -280,6 +295,7 @@ function BookingFlow({ rules, services, getService }: { rules: NonNullable<Retur
                         </Choice>
                       ))}
                     </div>
+                    </>
                   )}
                 </QueryState>
               </div>

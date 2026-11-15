@@ -10,13 +10,16 @@ import { HoldCountdown } from "../components/common/HoldCountdown";
 import { PageHeader } from "../components/common/PageHeader";
 import { QueryState } from "../components/common/QueryState";
 import { StatusBadge } from "../components/common/StatusBadge";
+import { useCatalog } from "../context/CatalogContext";
 import { useAsync } from "../hooks/useAsync";
+import { stylistLabel } from "../utils/stylist";
 import { formatKSh, formatLongDate } from "../utils/format";
 import { recallGuestEmail, rememberGuestEmail } from "../utils/guestAccess";
 import { bookingStatusInfo } from "../utils/status";
 
 /** Booking detail for signed-in owners, or guests who supply the booking email (kept in this tab only). */
 export default function BookingStatus() {
+  const { rules } = useCatalog();
   const { reference = "" } = useParams();
   const [params] = useSearchParams();
   const fromQuery = params.get("email") ?? undefined;
@@ -67,7 +70,7 @@ export default function BookingStatus() {
                 <dl className="mt-6 divide-y divide-charcoal/10 text-sm">
                   {[
                     ["Date", formatLongDate(b.date)], ["Time", b.time], ["Location", b.location === "salon" ? "Physical salon" : "Mobile service"],
-                    ["Stylist", b.stylistId], ["Name", b.fullName], ["Phone", b.phone], ["Email", b.email], ["Notes", b.notes || "None"], ["Deposit", formatKSh(b.depositAmount)],
+                    ["Stylist", stylistLabel(b.stylistId, rules?.stylists)], ["Name", b.fullName], ["Phone", b.phone], ["Email", b.email], ["Notes", b.notes || "None"], ["Deposit", formatKSh(b.depositAmount)],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-6 py-3"><dt className="text-charcoal/60">{k}</dt><dd className="text-right font-medium">{v}</dd></div>
                   ))}

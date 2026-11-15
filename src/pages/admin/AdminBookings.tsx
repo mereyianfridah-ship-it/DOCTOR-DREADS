@@ -7,13 +7,16 @@ import { Button } from "../../components/common/Button";
 import { ConfirmAction } from "../../components/common/ConfirmAction";
 import { QueryState } from "../../components/common/QueryState";
 import { StatusBadge } from "../../components/common/StatusBadge";
+import { useCatalog } from "../../context/CatalogContext";
 import { useAsync } from "../../hooks/useAsync";
+import { stylistLabel } from "../../utils/stylist";
 import { formatKSh, formatLongDate } from "../../utils/format";
 import { bookingStatusInfo } from "../../utils/status";
 
 const PAGE = 50;
 
 export default function AdminBookings() {
+  const { rules } = useCatalog();
   const [status, setStatus] = useState("");
   const [offset, setOffset] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
@@ -44,7 +47,7 @@ export default function AdminBookings() {
           {rows.map((b) => (
             <tr key={b.reference}>
               <td className="px-4 py-3 font-mono text-xs">{b.reference}</td>
-              <td className="px-4 py-3">{b.service}<div className="text-xs text-charcoal/55">{b.location === "salon" ? "Salon" : "Mobile"} · {b.stylistId}</div></td>
+              <td className="px-4 py-3">{b.service}<div className="text-xs text-charcoal/55">{b.location === "salon" ? "Salon" : "Mobile"} · {stylistLabel(b.stylistId, rules?.stylists)}</div></td>
               <td className="px-4 py-3 whitespace-nowrap">{formatLongDate(b.date)}<div className="text-xs text-charcoal/55">{b.time}</div></td>
               <td className="px-4 py-3">{b.fullName}<div className="text-xs text-charcoal/55">{b.phone} · {b.email}</div>{b.notes && <div className="mt-1 text-xs italic text-charcoal/60">“{b.notes}”</div>}</td>
               <td className="px-4 py-3 whitespace-nowrap">{formatKSh(b.depositAmount)}</td>

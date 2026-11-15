@@ -4,6 +4,7 @@ import { Navbar } from "./Navbar";
 import { Footer } from "./Footer";
 import { CartDrawer } from "../shop/CartDrawer";
 import { ToastNotification } from "../common/ToastNotification";
+import { WhatsAppFloat } from "../common/ContactButtons";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -30,6 +31,7 @@ export function Layout() {
       </main>
       <Footer />
       <CartDrawer />
+      <WhatsAppFloat />
       <ToastNotification />
     </div>
   );

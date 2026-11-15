@@ -37,12 +37,14 @@ In another terminal run the frontend (`npm run dev` in the project root). Vite p
 | `GET /gallery[?category]`, `/testimonials` | content |
 | `POST /auth/register`, `/auth/login`; `GET/PATCH /auth/me`; `POST /auth/change-password` | accounts (Bearer token) |
 | `GET /availability?date=YYYY-MM-DD&stylist=auto` | open slots |
+| `GET /closures?from=&to=&stylist=auto\|<id>` | closed / part-closed dates for the date picker |
 | `POST /bookings`; `GET /bookings/:ref?email=`; `POST /bookings/:ref/cancel` | bookings (status `pending_deposit` → `confirmed`) |
 | `POST /orders`; `GET /orders/:ref?email=`; `POST /orders/:ref/cancel` | shop orders (`pending_payment` → `paid` → …) |
 | `POST /payments/mpesa/stk` `{kind:"order"\|"booking", reference, email?, phone?}`; `GET /payments/status?kind&reference&email` | pay / poll |
 | `POST /consultations` (multipart, up to 5 `photos`); `GET /consultation-info` | consultation requests |
 | `POST /contact` | contact form |
 | `GET /account/bookings`, `/account/orders` | signed-in customer |
+| `GET/POST /admin/closures`, `DELETE /admin/closures/:id`; `GET/POST /admin/closed-days`, `DELETE /admin/closed-days/:date` | recurring, part-day and stylist closures; one-off closed days (admin only) |
 | `GET /admin/summary`, `/admin/{bookings,orders,consultations,messages,payments}`; `PATCH` status endpoints; `PATCH /admin/products/:slug`, `/admin/services/:slug` | admin only |
 
 Errors: `{ "error": "message", "fields": { "email": "…" } }` with 400 (validation), 401/403, 404, 409 (conflict/out of stock).

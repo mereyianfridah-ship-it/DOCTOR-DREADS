@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { Menu, ShoppingBag, User, X } from "lucide-react";
+import { Heart, Menu, ShoppingBag, User, X } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
+import { useWishlist } from "../../context/WishlistContext";
 import { ButtonLink } from "../common/Button";
 import { BrandMark } from "./BrandMark";
 
@@ -18,6 +19,7 @@ export const navLinks = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const { itemCount, openDrawer } = useCart();
+  const { count: wishCount } = useWishlist();
   const { user } = useAuth();
   const accountHref = user ? "/account" : "/login";
   const location = useLocation();
@@ -53,6 +55,14 @@ export function Navbar() {
           <ButtonLink to="/booking" size="sm" className="hidden sm:inline-flex">
             Book Appointment
           </ButtonLink>
+          <Link to="/wishlist" aria-label={`Wishlist, ${wishCount} saved`} className="relative rounded-full p-2.5 hover:bg-charcoal/5">
+            <Heart className="h-5 w-5" />
+            {wishCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-gold px-1 text-[11px] font-bold text-charcoal">
+                {wishCount}
+              </span>
+            )}
+          </Link>
           <button
             type="button"
             onClick={openDrawer}

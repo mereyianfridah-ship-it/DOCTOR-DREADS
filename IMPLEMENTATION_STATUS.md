@@ -105,3 +105,38 @@ Known limits: a permanently bad email address is retried every interval until th
 2. **Admin > Settings.** Location, opening hours, phone, WhatsApp, email, Instagram/Facebook/TikTok, stored in `app_settings`. Public `GET /api/business` (cached 60 s) returns ready-made `tel:`, `https://wa.me/...` and `mailto:` links; the Footer, Contact page and booking form read it (`src/hooks/useBusiness.ts`) instead of the empty values in `src/config/site.ts`. Kenyan numbers are normalised to `+254 7xx xxx xxx`; social links must be `https://` on the right site; empty fields stay hidden. Saving shows the change on open pages at once.
 
 Not included: per-stylist working hours, days off or service qualifications; the reminder emails still do not print the salon phone number (easy follow-up now that it is stored); bookings lists still show the stylist id (e.g. `jane-wanjiru`) rather than the display name.
+
+## Contact one-tap buttons (2026-11-15)
+**Verification: NOT built or run.** Filtered `tsc` shows no errors in the edited files. Frontend only, no migration.
+- `SocialIcon` now draws real WhatsApp and TikTok logos plus phone and email icons (with Instagram and Facebook).
+- `ContactButtons.tsx`: large brand-coloured tap buttons on the Contact page (WhatsApp, Call, Email, Instagram, Facebook, TikTok), round logo buttons in the footer, and a floating WhatsApp button on every public page. Only channels set in Admin > Settings appear; WhatsApp opens with a ready-typed greeting (edit `WA_MESSAGE` in that file).
+
+## Polish round (2026-11-15)
+**Verification: NOT built or run against a database.** Filtered `tsc` shows no errors in the edited files; `contactLine` was compiled and run with Node. New tests in `backend/tests/reminders.test.ts` not run.
+- Reminder emails end with the salon's phone/WhatsApp from Admin > Settings (nothing is added when unset). `loadBusiness` moved to `backend/src/lib/businessStore.ts`.
+- Admin bookings list and the customer booking page show the stylist's name instead of an id (`src/utils/stylist.ts`).
+- `public/robots.txt` keeps admin, account, checkout and status pages out of search engines (no sitemap yet: it needs the final domain).
+- `vercel.json`: security headers (HSTS, nosniff, frame deny, referrer, permissions policy) and long caching for `/assets`. A Content-Security-Policy is deliberately NOT included: it must be tested against fonts, Cloudinary and the API first.
+- `index.html`: Open Graph/Twitter tags so shared links look right.
+
+## Feature: closed days (2026-11-15)
+**Verification: NOT built, NOT run against a database.** Filtered `tsc` shows no errors in the edited files; new tests (`closed days (admin)` in `backend/tests/api.test.ts`) not run.
+- Migration `019_closed_days.sql`. Admin > Closed days: mark a date closed with an optional reason, reopen it, and see how many active bookings already sit on it (they are NOT cancelled automatically).
+- `/api/availability` returns `open:false` and `closedReason`; new bookings and reschedules onto a closed date are refused (400). The booking page shows the reason.
+- The items this section originally left out (recurring closures, part-day closures, stylist days off, greyed-out dates) are now built: see the next section.
+
+## Feature: recurring closures, part-day closures, stylist days off, greyed-out dates (2026-11-15)
+**Verification:** backend `tsc` and frontend `tsc` clean; frontend `vite build` passes. `backend/tests/closures.test.ts` (12 unit tests of the rules engine) and the `closures:` block in `backend/tests/api.test.ts` (5 integration tests, run against a real PostgreSQL 16 including migration 020) pass. Admin form, greyed/dotted date picker and the "stylist is off" message were also driven in a real browser against the live API. Run the backend suite with `--no-file-parallelism` (the test files share one database) and `PAYMENTS_MODE=mock`; 12 tests in the original suite (catalog, orders, stylists, M-Pesa) already failed in this environment before this change and are unrelated.
+- Migration `020_closure_rules.sql` adds `closure_rules`. One rule = who (whole salon or one stylist) + when (a date or date range, every week on a weekday with optional from/until, or every year on a day) + hours (all day, or only between two times) + optional reason. The older `closed_days` rows still work and are treated as whole-day, whole-salon, one-off rules.
+- Rules engine: `backend/src/lib/closures.ts` (pure, tested); loader `closureStore.ts`.
+- Booking, availability and reschedule honour all of it: a part-day closure removes only the overlapping slots (a long service that would run into the closure is blocked too); a stylist's day off removes only that stylist ("any stylist" picks someone who is working); a whole-salon all-day closure still refuses the booking (400).
+- `GET /api/closures?from&to&stylist=auto|<id>` (public) lists closed and part-closed dates for the date picker. With "any stylist" a date is closed only if the salon is closed or every active stylist is off. `/api/availability` also returns `closedWindows` and `stylistOff`.
+- Admin: `GET/POST /api/admin/closures`, `DELETE /api/admin/closures/:id`; Admin > Closed days has a new form and list, and shows how many upcoming bookings each rule clashes with (they are NOT cancelled automatically).
+- Date picker: closed dates are greyed and struck through with the reason on hover; a dot marks part-day closures. The booking page picker uses "any stylist"; the reschedule picker uses the booking's stylist unless "keep the same stylist" is unticked.
+- Known limits: the date step comes before the stylist step, so a date that only one stylist is off on stays selectable and the customer is told on the time step. Slot availability assumes 60-minute slots (as before), while booking creation uses the service's real duration.
+
+## Feature: product wishlist (2026-11-15)
+- Heart button on product cards and product pages, a heart with count in the navbar, and a `/wishlist` page. Saved in the browser (localStorage), synced across tabs, capped at 100, and products that were removed or archived drop out automatically. Not tied to an account. Tests: `src/tests/wishlist.test.ts`.
+
+## Fix: refreshing /admin or /account no longer bounces to login (2026-11-15)
+`AuthContext` marked the session "ready" from a second, un-awaited `/auth/me` call before the user had loaded, so a hard refresh redirected to `/login`. Removed that early flip.

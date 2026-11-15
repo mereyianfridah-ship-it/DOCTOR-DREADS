@@ -7,6 +7,7 @@ import { stockStatus } from "../../utils/product";
 import { formatKSh } from "../../utils/format";
 import { useCart } from "../../context/CartContext";
 import { Button, ButtonLink } from "../common/Button";
+import { WishlistButton } from "./WishlistButton";
 
 const tone = { ok: "text-olive", low: "text-brown", out: "text-red-700" } as const;
 
@@ -33,6 +34,7 @@ export function ProductCard({ product }: { product: Product }) {
           category={product.category}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
         />
+        <WishlistButton slug={product.slug} name={product.name} />
         <span className="absolute left-3 top-3">
           {product.status === "archived" && (
             <span className="text-xs text-gray-500">Archived</span>

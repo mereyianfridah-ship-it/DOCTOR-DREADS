@@ -138,11 +138,33 @@ export const verifyEmail = (token: string) =>
 export interface AvailabilityResponse {
   date: string;
   open: boolean;
+  closedReason?: string;
+  /** The chosen stylist is off for the whole day. */
+  stylistOff?: boolean;
+  stylistOffReason?: string;
+  /** Part-day closures (salon-wide and the chosen stylist's own) that explain unavailable times. */
+  closedWindows?: ClosedWindow[];
   slots: {
     time: string;
     available: boolean;
   }[];
 }
+
+export interface ClosedWindow { from: string; to: string; reason: string }
+
+/** A date that is closed (grey it out) or only partly closed (flag it) for the chosen stylist / "any". */
+export interface ClosureDate {
+  date: string;
+  kind: "closed" | "partial";
+  reason: string;
+  windows?: ClosedWindow[];
+}
+
+export const getClosures = (from: string, to: string, stylist: string, signal?: AbortSignal) =>
+  api<{ dates: ClosureDate[] }>(
+    `/closures?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&stylist=${encodeURIComponent(stylist)}`,
+    { signal },
+  );
 
 export const getAvailability = (
   date: string,
@@ -708,3 +730,39 @@ export const adminUpdateStylist = (id: string, b: { name?: string; note?: string
 
 export const adminDeleteStylist = (id: string) =>
   api<{ ok: true }>(`/admin/stylists/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export type ClosureRecurrence = "once" | "weekly" | "yearly";
+export interface AdminClosure {
+  id: number;
+  stylistId: string | null;
+  stylistName: string | null;
+  recurrence: ClosureRecurrence;
+  startDate: string | null;
+  endDate: string | null;
+  weekday: number | null;
+  monthDay: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  reason: string;
+  summary: string;
+  affectedBookings: number;
+}
+export interface ClosureInput {
+  stylistId?: string;
+  recurrence: ClosureRecurrence;
+  startDate?: string;
+  endDate?: string;
+  weekday?: number;
+  monthDay?: string;
+  startTime?: string;
+  endTime?: string;
+  reason?: string;
+}
+export const adminClosures = (signal?: AbortSignal) => api<AdminClosure[]>("/admin/closures", { signal });
+export const adminAddClosure = (b: ClosureInput) => api<AdminClosure>("/admin/closures", { method: "POST", body: b });
+export const adminDeleteClosure = (id: number) => api<{ ok: true }>(`/admin/closures/${id}`, { method: "DELETE" });
+
+export interface ClosedDay { date: string; reason: string; affectedBookings: number }
+export const adminClosedDays = (signal?: AbortSignal) => api<ClosedDay[]>("/admin/closed-days", { signal });
+export const adminCloseDay = (b: { date: string; reason: string }) => api<ClosedDay>("/admin/closed-days", { method: "POST", body: b });
+export const adminReopenDay = (date: string) => api<{ ok: true }>(`/admin/closed-days/${encodeURIComponent(date)}`, { method: "DELETE" });

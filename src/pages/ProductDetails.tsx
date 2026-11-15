@@ -1,13 +1,14 @@
 import { ProductImage } from "../components/common/ProductImage";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Heart, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../components/common/Button";
 import { SectionHeading } from "../components/common/SectionHeading";
 import { ProductGrid } from "../components/shop/ProductGrid";
 import { QuantitySelector } from "../components/shop/QuantitySelector";
 import { useCart } from "../context/CartContext";
+import { useWishlist } from "../context/WishlistContext";
 import { QueryState } from "../components/common/QueryState";
 import { useCatalog } from "../context/CatalogContext";
 import { maxQuantity, stockStatus } from "../utils/product";
@@ -27,6 +28,8 @@ function ProductView({ slug }: { slug: string }) {
   const { products, getProduct } = useCatalog();
   const product = getProduct(slug)!;
   const { addItem, openDrawer } = useCart();
+  const { has, toggle } = useWishlist();
+  const saved = has(product.slug);
   const [qty, setQty] = useState(1);
   const [imgIndex, setImgIndex] = useState(0);
   const status = stockStatus(product);
@@ -84,8 +87,16 @@ function ProductView({ slug }: { slug: string }) {
                   <ShoppingBag className="h-5 w-5" aria-hidden />
                   {product.stock === 0 ? "Out of stock" : "Add to Cart"}
                 </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  aria-pressed={saved}
+                  onClick={() => toast(toggle(product.slug) ? `${product.name} saved to your wishlist` : `${product.name} removed from your wishlist`)}
+                >
+                  <Heart className={`h-5 w-5 ${saved ? "fill-red-600 text-red-600" : ""}`} aria-hidden />
+                  {saved ? "Saved" : "Save"}
+                </Button>
               </div>
-              
             </div>
           </div>
         </div>

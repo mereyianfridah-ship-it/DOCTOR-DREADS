@@ -976,3 +976,130 @@ describe("stylists (admin)", () => {
     await run("DELETE FROM app_settings WHERE key IN ('stylists_managed','business')");
   });
 });
+
+describe("closed days (admin)", () => {
+  let auth: { Authorization: string };
+  const date = openDate(6);
+  const booking = (d: string) => ({ serviceSlug: "loc-retouching", location: "salon", date: d, time: "10:00", stylist: "auto", fullName: "Closer", phone: "0700111222", email: "closed@example.com", notes: "" });
+  beforeAll(async () => {
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    auth = { Authorization: `Bearer ${tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }))}` };
+    await run("DELETE FROM closed_days");
+    await run("DELETE FROM bookings WHERE email='closed@example.com'");
+  });
+  it("requires an admin and a valid future date", async () => {
+    expect((await api().post("/api/admin/closed-days").send({ date })).status).toBe(401);
+    expect((await api().post("/api/admin/closed-days").set(auth).send({ date: "nope" })).status).toBe(400);
+    expect((await api().post("/api/admin/closed-days").set(auth).send({ date: addDays(todayEAT(), -1) })).status).toBe(400);
+  });
+  it("blocks availability and new bookings on a closed day, and reopens it", async () => {
+    expect((await api().get(`/api/availability?date=${date}&stylist=auto`)).body.open).toBe(true);
+    const c = await api().post("/api/admin/closed-days").set(auth).send({ date, reason: "Public holiday" });
+    expect(c.status).toBe(201);
+    const av = (await api().get(`/api/availability?date=${date}&stylist=auto`)).body;
+    expect(av).toMatchObject({ open: false, closedReason: "Public holiday" });
+    expect(av.slots.every((s: any) => !s.available)).toBe(true);
+    expect((await api().post("/api/bookings").send(booking(date))).status).toBe(400);
+    expect((await api().get("/api/admin/closed-days").set(auth)).body.map((d: any) => d.date)).toContain(date);
+    expect((await api().delete(`/api/admin/closed-days/${date}`).set(auth)).status).toBe(200);
+    expect((await api().delete(`/api/admin/closed-days/${date}`).set(auth)).status).toBe(404);
+    expect((await api().get(`/api/availability?date=${date}&stylist=auto`)).body.open).toBe(true);
+  });
+  afterAll(async () => { await run("DELETE FROM closed_days"); await run("DELETE FROM bookings WHERE email='closed@example.com'"); });
+});
+
+/* ---------------- recurring / part-day closures and stylist days off ---------------- */
+
+describe("closures: recurring, part-day and stylist days off", () => {
+  let auth: Record<string, string>;
+  let stylistA = "", stylistB = "";
+  const base = { serviceSlug: "loc-retouching", location: "salon", stylist: "auto", fullName: "Closure Tester", phone: "0700111222", email: "closure@example.com", notes: "" };
+  const weekdayOf = (d: string) => new Date(d + "T00:00:00Z").getUTCDay();
+  const addRule = (b: Record<string, unknown>) => api().post("/api/admin/closures").set(auth).send(b);
+  const slot = (av: any, time: string) => av.body.slots.find((s: any) => s.time === time).available as boolean;
+
+  beforeAll(async () => {
+    await run("INSERT INTO users (full_name,email,phone,password_hash,role,created_at) VALUES ('Boss','boss@example.com','', $1, 'admin', '2026-01-01') ON CONFLICT (email) DO NOTHING", bcrypt.hashSync("adminpassword1", 4));
+    auth = { Authorization: `Bearer ${tokenOf(await api().post("/api/auth/login").send({ email: "boss@example.com", password: "adminpassword1" }))}` };
+    const ids = ((await api().get("/api/config")).body.stylists as { id: string }[]).map((s) => s.id).filter((id) => id !== "auto");
+    [stylistA, stylistB] = ids as [string, string];
+    await run("DELETE FROM closure_rules");
+  });
+  afterAll(async () => { await run("DELETE FROM closure_rules"); });
+
+  it("requires an admin and validates input", async () => {
+    expect((await api().post("/api/admin/closures").send({ recurrence: "weekly", weekday: 1 })).status).toBe(401);
+    const bad = await addRule({ recurrence: "weekly", weekday: 1, startTime: "14:00", endTime: "12:00" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.fields?.endTime ?? bad.body.details?.endTime ?? JSON.stringify(bad.body)).toContain("after");
+    expect((await addRule({ recurrence: "once", startDate: openDate(8), stylistId: "ghost" })).status).toBe(400);
+  });
+
+  it("a weekly part-day closure blocks only the overlapping slots and bookings", async () => {
+    const d = openDate(8);
+    const r = await addRule({ recurrence: "weekly", weekday: weekdayOf(d), startTime: "11:00", endTime: "13:00", reason: "Staff lunch" });
+    expect(r.status).toBe(201);
+    const av = await api().get(`/api/availability?date=${d}`);
+    expect(av.body.open).toBe(true);
+    expect([slot(av, "10:00"), slot(av, "11:00"), slot(av, "12:00"), slot(av, "14:00")]).toEqual([true, false, false, true]);
+    expect(av.body.closedWindows).toEqual([{ from: "11:00", to: "13:00", reason: "Staff lunch" }]);
+    expect((await api().post("/api/bookings").send({ ...base, date: d, time: "12:00" })).status).toBe(409);
+    expect((await api().post("/api/bookings").send({ ...base, date: d, time: "14:00" })).status).toBe(201);
+    // It recurs: the same weekday a week later is also affected, but other weekdays are not.
+    expect(slot(await api().get(`/api/availability?date=${addDays(d, 7)}`), "12:00")).toBe(false);
+    const other = openDate(12) === d ? openDate(13) : openDate(12);
+    if (weekdayOf(other) !== weekdayOf(d)) expect(slot(await api().get(`/api/availability?date=${other}`), "12:00")).toBe(true);
+    const list = (await api().get("/api/admin/closures").set(auth)).body;
+    expect(list.find((x: any) => x.id === r.body.id)?.summary).toContain("11:00–13:00");
+    expect((await api().delete(`/api/admin/closures/${r.body.id}`).set(auth)).status).toBe(200);
+    expect(slot(await api().get(`/api/availability?date=${d}`), "12:00")).toBe(true);
+  });
+
+  it("a stylist's day off removes only that stylist", async () => {
+    await run("DELETE FROM closure_rules");
+    const d = openDate(20);
+    expect((await addRule({ recurrence: "once", startDate: d, stylistId: stylistA, reason: "Leave" })).status).toBe(201);
+    const forA = await api().get(`/api/availability?date=${d}&stylist=${stylistA}`);
+    expect(forA.body).toMatchObject({ open: true, stylistOff: true, stylistOffReason: "Leave" });
+    expect(forA.body.slots.every((s: any) => !s.available)).toBe(true);
+    expect(slot(await api().get(`/api/availability?date=${d}&stylist=${stylistB}`), "10:00")).toBe(true);
+    expect(slot(await api().get(`/api/availability?date=${d}`), "10:00")).toBe(true); // "any" still works
+
+    expect((await api().post("/api/bookings").send({ ...base, date: d, time: "10:00", stylist: stylistA })).status).toBe(409);
+    const auto = await api().post("/api/bookings").send({ ...base, date: d, time: "10:00" });
+    expect(auto.status).toBe(201);
+    expect(auto.body.booking.stylistId).toBe(stylistB);
+
+    // Date picker data: closed for A, not closed for "any" until everyone is off.
+    const closedFor = async (stylist: string) => ((await api().get(`/api/closures?from=${d}&to=${d}&stylist=${stylist}`)).body.dates as any[]).filter((x) => x.kind === "closed").length;
+    expect(await closedFor(stylistA)).toBe(1);
+    expect(await closedFor("auto")).toBe(0);
+    expect((await addRule({ recurrence: "once", startDate: d, stylistId: stylistB })).status).toBe(201);
+    expect(await closedFor("auto")).toBe(1);
+    // ...and the existing booking is flagged to the owner.
+    const list = (await api().get("/api/admin/closures").set(auth)).body;
+    expect(list.find((x: any) => x.stylistId === stylistB).affectedBookings).toBe(1);
+  });
+
+  it("a recurring whole-salon closure greys out every matching date and rejects bookings", async () => {
+    await run("DELETE FROM closure_rules");
+    const d = openDate(30);
+    expect((await addRule({ recurrence: "weekly", weekday: weekdayOf(d), reason: "Rest day" })).status).toBe(201);
+    const dates = (await api().get(`/api/closures?from=${d}&to=${addDays(d, 14)}`)).body.dates as any[];
+    expect(dates.map((x) => x.date)).toEqual([d, addDays(d, 7), addDays(d, 14)].filter((x) => x <= addDays(todayEAT(), 45)));
+    expect(dates.every((x) => x.kind === "closed" && x.reason === "Rest day")).toBe(true);
+    const av = await api().get(`/api/availability?date=${d}`);
+    expect(av.body).toMatchObject({ open: false, closedReason: "Rest day" });
+    expect((await api().post("/api/bookings").send({ ...base, date: d, time: "10:00" })).status).toBe(400);
+  });
+
+  it("legacy closed days keep working and show in the picker data", async () => {
+    await run("DELETE FROM closure_rules");
+    const d = openDate(25);
+    await run("DELETE FROM closed_days");
+    expect((await api().post("/api/admin/closed-days").set(auth).send({ date: d, reason: "Holiday" })).status).toBe(201);
+    expect(((await api().get(`/api/closures?from=${d}&to=${d}`)).body.dates as any[])[0]).toMatchObject({ date: d, kind: "closed", reason: "Holiday" });
+    expect((await api().post("/api/bookings").send({ ...base, date: d, time: "10:00" })).status).toBe(400);
+    await run("DELETE FROM closed_days");
+  });
+});

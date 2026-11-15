@@ -2,6 +2,8 @@ import { config } from "../config.js";
 import { all, run } from "../db.js";
 import { isMailConfigured, sendMail } from "./mailer.js";
 import { appointmentStartMs } from "./reschedule.js";
+import { normalizePhone } from "./business.js";
+import { loadBusiness } from "./businessStore.js";
 import { addDays, nowIso, todayEAT } from "./util.js";
 
 export interface ReminderCandidate {
@@ -25,7 +27,16 @@ export function isReminderDue(b: ReminderCandidate, hoursBefore: number, now = D
 const prettyDate = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
 
-export function reminderMessage(b: { full_name: string; email: string; reference: string; service_name: string; date: string; time: string; location: string }) {
+/** "Call +254 712 345 678 or WhatsApp +254 ..." from whatever the owner has set; empty when nothing is set. */
+export function contactLine(salon?: { phone?: string; whatsapp?: string }): string {
+  const phone = salon?.phone ? normalizePhone(salon.phone)?.display : undefined;
+  const wa = salon?.whatsapp ? normalizePhone(salon.whatsapp)?.display : undefined;
+  if (phone && wa && phone === wa) return ` You can call or WhatsApp us on ${phone}.`;
+  const parts = [phone && `call ${phone}`, wa && `WhatsApp ${wa}`].filter(Boolean);
+  return parts.length ? ` You can ${parts.join(" or ")}.` : "";
+}
+
+export function reminderMessage(b: { full_name: string; email: string; reference: string; service_name: string; date: string; time: string; location: string }, salon?: { phone?: string; whatsapp?: string }) {
   const where = b.location === "mobile" ? "We'll come to you (mobile appointment)." : "See you at the salon.";
   return {
     to: b.email,
@@ -34,7 +45,7 @@ export function reminderMessage(b: { full_name: string; email: string; reference
       `Hi ${String(b.full_name).split(" ")[0]},\n\n` +
       `This is a friendly reminder of your upcoming appointment (${b.service_name}) on ${prettyDate(b.date)} at ${b.time} (East Africa Time). ${where}\n\n` +
       `Reference: ${b.reference}\n\n` +
-      `If you can no longer make it, please contact the salon as soon as you can so the slot can be offered to someone else.`,
+      `If you can no longer make it, please contact the salon as soon as you can so the slot can be offered to someone else.` + contactLine(salon),
   };
 }
 
@@ -59,12 +70,13 @@ export async function sendDueReminders(now = Date.now()): Promise<ReminderRun> {
     today, addDays(today, Math.ceil(hoursBefore / 24) + 1),
   );
 
+  const salon = await loadBusiness();
   let sent = 0, failed = 0;
   for (const b of rows) {
     if (!isReminderDue(b, hoursBefore, now)) continue;
     const claim = await run("UPDATE bookings SET reminder_sent_at=$1 WHERE id=$2 AND status='confirmed' AND reminder_sent_at IS NULL", nowIso(), b.id);
     if (claim.rowCount !== 1) continue; // another run got there first, or the booking just changed
-    const ok = await sendMail(reminderMessage(b)).catch(() => false);
+    const ok = await sendMail(reminderMessage(b, salon)).catch(() => false);
     if (ok) sent++;
     else {
       failed++;

@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { CatalogProvider } from "./context/CatalogContext";
 import { CartProvider } from "./context/CartContext";
+import { WishlistProvider } from "./context/WishlistContext";
 import { Layout } from "./components/layout/Layout";
 import { LoadingSpinner } from "./components/common/LoadingSpinner";
 import { RequireAdmin, RequireAuth } from "./components/common/RequireAuth";
@@ -18,6 +19,7 @@ import ConsultationStatus from "./pages/ConsultationStatus";
 import Shop from "./pages/Shop";
 import ProductDetails from "./pages/ProductDetails";
 import Cart from "./pages/Cart";
+import Wishlist from "./pages/Wishlist";
 import Checkout from "./pages/Checkout";
 import OrderStatus from "./pages/OrderStatus";
 import Track from "./pages/Track";
@@ -48,6 +50,7 @@ const AdminServices = lazy(() => import("./pages/admin/AdminServices"));
 const AdminCustomers = lazy(() => import("./pages/admin/AdminCustomers"));
 const AdminTiktok = lazy(() => import("./pages/admin/AdminTiktok"));
 const AdminStylists = lazy(() => import("./pages/admin/AdminStylists"));
+const AdminClosedDays = lazy(() => import("./pages/admin/AdminClosedDays"));
 const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
 
 const lazyPage = (node: ReactNode) => <Suspense fallback={<LoadingSpinner />}>{node}</Suspense>;
@@ -58,6 +61,7 @@ export default function App() {
       <AuthProvider>
         <CatalogProvider>
           <CartProvider>
+            <WishlistProvider>
             <Routes>
               <Route element={<Layout />}>
                 <Route index element={<Home />} />
@@ -71,6 +75,7 @@ export default function App() {
                 <Route path="shop" element={<Shop />} />
                 <Route path="shop/:slug" element={<ProductDetails />} />
                 <Route path="cart" element={<Cart />} />
+                <Route path="wishlist" element={<Wishlist />} />
                 <Route path="checkout" element={<Checkout />} />
                 <Route path="orders/:reference" element={<OrderStatus />} />
                 <Route path="track" element={<Track />} />
@@ -97,6 +102,7 @@ export default function App() {
                   <Route path="customers" element={lazyPage(<AdminCustomers />)} />
                   <Route path="tiktok" element={lazyPage(<AdminTiktok />)} />
                   <Route path="stylists" element={lazyPage(<AdminStylists />)} />
+                  <Route path="closed-days" element={lazyPage(<AdminClosedDays />)} />
                   <Route path="settings" element={lazyPage(<AdminSettings />)} />
                 </Route>
                 <Route path="privacy" element={<Legal kind="privacy" />} />
@@ -104,6 +110,7 @@ export default function App() {
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
+            </WishlistProvider>
           </CartProvider>
         </CatalogProvider>
       </AuthProvider>

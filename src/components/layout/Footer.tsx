@@ -3,7 +3,7 @@ import { MapPin } from "lucide-react";
 import { siteConfig } from "../../config/site";
 import { useCatalog } from "../../context/CatalogContext";
 import { useBusiness } from "../../hooks/useBusiness";
-import { SocialIcon } from "../common/SocialIcon";
+import { ContactIcons } from "../common/ContactButtons";
 import { BrandMark } from "./BrandMark";
 
 const quickLinks = [
@@ -26,7 +26,7 @@ function ContactLine({ text, href }: { text: string; href: string | null }) {
 }
 
 export function Footer() {
-  const { contact, social, location } = useBusiness();
+  const { contact, location } = useBusiness();
   const { services } = useCatalog();
   return (
     <footer className="bg-charcoal text-cream/80">
@@ -36,21 +36,7 @@ export function Footer() {
           <p className="mt-5 max-w-xs text-sm leading-relaxed">
             Dreadlocks services and natural hair-care essentials in {location}.
           </p>
-          <ul className="mt-6 flex gap-3">
-            {social.filter((s) => s.href).map((s) => (
-              <li key={s.id}>
-                <a
-                    href={s.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={s.label}
-                    className="flex h-10 w-10 items-center justify-center rounded-full border border-cream/30 hover:border-gold hover:text-gold"
-                  >
-                    <SocialIcon id={s.id} />
-                  </a>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-6"><ContactIcons /></div>
         </div>
 
         <div>

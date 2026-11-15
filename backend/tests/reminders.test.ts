@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isReminderDue, reminderMessage } from "../src/lib/reminders.js";
+import { contactLine, isReminderDue, reminderMessage } from "../src/lib/reminders.js";
 import { appointmentStartMs } from "../src/lib/reschedule.js";
 
 // 2026-11-20 10:00 EAT = 07:00 UTC
@@ -44,5 +44,24 @@ describe("reminderMessage", () => {
   });
   it("says so for mobile appointments", () => {
     expect(reminderMessage({ ...base, location: "mobile" }).text).toContain("come to you");
+  });
+});
+
+describe("contactLine / salon number in reminders", () => {
+  it("is empty when the owner has set nothing", () => {
+    expect(contactLine()).toBe("");
+    expect(contactLine({ phone: "", whatsapp: "" })).toBe("");
+  });
+  it("names the number once when phone and WhatsApp are the same", () => {
+    expect(contactLine({ phone: "+254712345678", whatsapp: "0712345678" })).toBe(" You can call or WhatsApp us on +254 712 345 678.");
+  });
+  it("lists both when they differ, and ignores invalid numbers", () => {
+    expect(contactLine({ phone: "+254712345678", whatsapp: "+254733111222" })).toBe(" You can call +254 712 345 678 or WhatsApp +254 733 111 222.");
+    expect(contactLine({ phone: "bad" })).toBe("");
+  });
+  it("is appended to the reminder text only when set", () => {
+    const b = { full_name: "Amina W", email: "a@example.com", reference: "BK-1", service_name: "Retouch", date: "2026-12-01", time: "10:00", location: "salon" };
+    expect(reminderMessage(b).text).not.toContain("WhatsApp");
+    expect(reminderMessage(b, { whatsapp: "0712345678" }).text).toContain("WhatsApp +254 712 345 678");
   });
 });

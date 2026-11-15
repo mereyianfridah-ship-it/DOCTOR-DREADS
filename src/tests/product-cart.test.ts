@@ -4,7 +4,7 @@ import { sanitiseCart } from "../utils/cart";
 import { categoriesOf, maxQuantity, stockStatus } from "../utils/product";
 
 const p = (slug: string, stock: number, category = "Oils"): Product => ({
-  slug, name: slug, category, shortDescription: "", description: "", price: 500, stock, images: [], size: "100ml",
+  slug, name: slug, category, shortDescription: "", description: "", price: 500, stock, images: [], size: "100ml", status: "active", low_stock_threshold: 5,
 });
 
 describe("product helpers", () => {

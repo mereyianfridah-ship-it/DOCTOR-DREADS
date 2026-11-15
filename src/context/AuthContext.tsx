@@ -26,10 +26,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Restore the session on first load; an invalid/expired token is discarded.
   useEffect(() => {
-    // Ensure the cookie-based session is verified.
-    void ensureSession().then(() => {
-      setStatus("ready");
-    });
+    // "ready" is only set once the me request below settles. (A second, un-awaited ensureSession() call used to
+    // flip it early, so refreshing /admin or /account redirected to /login before the user had loaded.)
     const ctl = new AbortController();
     getMeCookie(ctl.signal)
       .then((r) => {

@@ -8,6 +8,8 @@ import { email, fullName, phone } from "../lib/schemas.js";
 import { addDays, addMinutesToHhmm, dayOfWeek, isValidISODate, overlaps, overlapsWithDuration, plusMinutesIso, reference, todayEAT, nowIso } from "../lib/util.js";
 import { site } from "../site.js";
 import { activeStylists } from "../lib/stylists.js";
+import { loadRules } from "../lib/closureStore.js";
+import { blockingClosure, dayState, partialWindows, salonClosedReason, stylistOffReason } from "../lib/closures.js";
 import { rescheduleEligibility } from "../lib/reschedule.js";
 import { sendMail } from "../lib/mailer.js";
 
@@ -44,16 +46,48 @@ bookingsRouter.get("/availability", async (req, res) => {
   const realStylists = await activeStylists();
   if (q.stylist !== "auto" && !realStylists.some((s) => s.id === q.stylist)) throw new HttpError(400, "Unknown stylist");
   await sweepExpired();
-  const open = isOpen(q.date);
+  const rules = await loadRules();
+  const closed = salonClosedReason(rules, q.date);
+  const open = isOpen(q.date) && closed === null;
   const windows = await stylistWindows(q.date);
   const slotLength = 60;
+  const ids = q.stylist === "auto" ? realStylists.map((s) => s.id) : [q.stylist];
   const slots = site.booking.slots.map((time) => {
-    let available: boolean;
-    if (q.stylist === "auto") available = realStylists.some((s) => stylistIsFree(windows, s.id, time, slotLength));
-    else available = stylistIsFree(windows, q.stylist, time, slotLength);
+    const available = ids.some((id) => stylistIsFree(windows, id, time, slotLength) && blockingClosure(rules, q.date, id, time, slotLength) === null);
     return { time, available: open && available };
   });
-  res.json({ date: q.date, open, slots });
+  const off = q.stylist === "auto" ? null : stylistOffReason(rules, q.date, q.stylist);
+  res.json({
+    date: q.date, open, ...(closed !== null ? { closedReason: closed } : {}),
+    ...(off !== null ? { stylistOff: true, stylistOffReason: off } : {}),
+    // Part-day closures (salon-wide, plus the chosen stylist's own) so the page can explain greyed-out times.
+    closedWindows: [...partialWindows(rules, q.date, null), ...(q.stylist === "auto" ? [] : partialWindows(rules, q.date, q.stylist))],
+    slots,
+  });
+});
+
+/**
+ * Dates in [from, to] that are closed or partly closed, for greying out the date picker.
+ * With stylist=auto a date only counts as closed when the salon is closed or every active stylist is off.
+ */
+bookingsRouter.get("/closures", async (req, res) => {
+  const q = z.object({ from: z.string(), to: z.string(), stylist: z.string().default("auto") }).parse(req.query);
+  if (!isValidISODate(q.from) || !isValidISODate(q.to)) throw new HttpError(400, "Dates must be YYYY-MM-DD");
+  const today = todayEAT();
+  const from = q.from < today ? today : q.from;
+  const to = q.to > addDays(today, 400) ? addDays(today, 400) : q.to;
+  const real = await activeStylists();
+  if (q.stylist !== "auto" && !real.some((s) => s.id === q.stylist)) throw new HttpError(400, "Unknown stylist");
+  const ids = q.stylist === "auto" ? real.map((s) => s.id) : [q.stylist];
+  const rules = await loadRules();
+  const dates: { date: string; kind: "closed" | "partial"; reason: string; windows?: { from: string; to: string; reason: string }[] }[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const st = dayState(rules, d, ids);
+    if (st.state === "closed") dates.push({ date: d, kind: "closed", reason: st.reason });
+    else if (st.state === "partial") dates.push({ date: d, kind: "partial", reason: st.windows[0]?.reason ?? "", windows: st.windows });
+  }
+  res.set("Cache-Control", "public, max-age=30");
+  res.json({ dates });
 });
 
 const bookingSchema = z.object({
@@ -95,7 +129,8 @@ bookingsRouter.get("/bookings/:reference", optionalAuth, asyncHandler(async (req
 bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => {
   const b = bookingSchema.parse(req.body);
   checkDate(b.date);
-  if (!isOpen(b.date)) throw new HttpError(400, "The salon is closed on that day", { date: "Closed on this day" });
+  const rules = await loadRules();
+  if (!isOpen(b.date) || salonClosedReason(rules, b.date) !== null) throw new HttpError(400, "The salon is closed on that day", { date: "Closed on this day" });
   if (!site.booking.slots.includes(b.time)) throw new HttpError(400, "Invalid time slot", { time: "Invalid time slot" });
   const realStylists = await activeStylists();
   if (realStylists.length === 0) throw new HttpError(409, "Online booking is paused right now: please contact the salon");
@@ -115,12 +150,15 @@ bookingsRouter.post("/bookings", optionalAuth, asyncHandler(async (req, res) => 
     for (const s of candidates) await t$.run("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", `booking:${b.date}`, s.id);
 
     const windows = await stylistWindows(b.date);
-    const free = (stylistId: string) => stylistIsFree(windows, stylistId, start, durationMinutes);
+    const onShift = (stylistId: string) => blockingClosure(rules, b.date, stylistId, start, durationMinutes) === null;
+    const free = (stylistId: string) => onShift(stylistId) && stylistIsFree(windows, stylistId, start, durationMinutes);
 
     let stylist: string | undefined;
     for (const s of candidates) {
       if (free(s.id)) { stylist = s.id; break; }
     }
+    if (!stylist && candidates.length > 0 && candidates.every((s) => !onShift(s.id)))
+      throw new HttpError(409, "That stylist isn't working at that time: please choose another time or stylist", { time: "Slot unavailable" });
     if (!stylist) throw new HttpError(409, "That time was just taken: please choose another slot", { time: "Slot unavailable" });
 
     const ref = reference("BK");
@@ -170,7 +208,8 @@ bookingsRouter.post("/bookings/:reference/reschedule", optionalAuth, asyncHandle
   const found = await findBooking(String(req.params.reference), req, body.email);
 
   checkDate(body.date);
-  if (!isOpen(body.date)) throw new HttpError(400, "The salon is closed on that day", { date: "Closed on this day" });
+  const rules = await loadRules();
+  if (!isOpen(body.date) || salonClosedReason(rules, body.date) !== null) throw new HttpError(400, "The salon is closed on that day", { date: "Closed on this day" });
   if (!site.booking.slots.includes(body.time)) throw new HttpError(400, "Invalid time slot", { time: "Invalid time slot" });
   const realStylists = await activeStylists();
   if (!["same", "auto"].includes(body.stylist) && !realStylists.some((s) => s.id === body.stylist)) throw new HttpError(400, "Unknown stylist", { stylist: "Unknown stylist" });
@@ -192,7 +231,10 @@ bookingsRouter.post("/bookings/:reference/reschedule", optionalAuth, asyncHandle
       for (const id of candidates) await t$.run("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", `booking:${body.date}`, id);
       const windows = await stylistWindows(body.date, cur.id); // ignore this booking's own old slot
       const duration = Number(cur.duration_minutes ?? 60);
-      const stylist = candidates.find((id) => stylistIsFree(windows, id, body.time, duration));
+      const onShift = (id: string) => blockingClosure(rules, body.date, id, body.time, duration) === null;
+      const stylist = candidates.find((id) => onShift(id) && stylistIsFree(windows, id, body.time, duration));
+      if (!stylist && candidates.length > 0 && candidates.every((id) => !onShift(id)))
+        throw new HttpError(409, "That stylist isn't working at that time: please choose another time or stylist", { time: "Slot unavailable" });
       if (!stylist) throw new HttpError(409, "That time isn't available: please choose another slot", { time: "Slot unavailable" });
 
       previous = `${cur.date} ${cur.time}`;

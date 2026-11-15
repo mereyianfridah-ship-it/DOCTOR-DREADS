@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "../../api/client";
-import { getAvailability, rescheduleBooking } from "../../api/endpoints";
+import { getAvailability, getClosures, rescheduleBooking } from "../../api/endpoints";
 import { Button } from "../common/Button";
 import { QueryState } from "../common/QueryState";
 import { DatePicker } from "./DatePicker";
 import { useAsync } from "../../hooks/useAsync";
 import { useCatalog } from "../../context/CatalogContext";
 import type { BookingRecord } from "../../types";
-import { formatLongDate } from "../../utils/format";
+import { formatLongDate, toISODate } from "../../utils/format";
 
 /**
  * Lets a customer move their own appointment. Eligibility (status, limit, notice period) is decided by the server
@@ -30,6 +30,13 @@ export function RescheduleBooking({ booking, email, onDone }: { booking: Booking
     (signal) => (open && date ? getAvailability(date, keepStylist ? booking.stylistId : "auto", signal) : Promise.resolve(null)),
     [open, date, keepStylist, booking.stylistId],
   );
+
+  // Grey out dates this stylist (or, if not keeping them, everyone) can't take.
+  const closureData = useAsync(
+    (signal) => (open ? getClosures(toISODate(minDate), toISODate(maxDate), keepStylist ? booking.stylistId : "auto", signal) : Promise.resolve(null)),
+    [open, keepStylist, booking.stylistId, minDate, maxDate],
+  );
+  const closures = useMemo(() => Object.fromEntries((closureData.data?.dates ?? []).map((c) => [c.date, c])), [closureData.data]);
 
   if (booking.status !== "pending_deposit" && booking.status !== "confirmed") return null;
 
@@ -74,14 +81,20 @@ export function RescheduleBooking({ booking, email, onDone }: { booking: Booking
         Keep the same stylist (untick to accept any available stylist)
       </label>
       <div className="mt-4">
-        <DatePicker value={date} onChange={(iso) => { setDate(iso); setTime(""); }} minDate={minDate} maxDate={maxDate} openDays={rules.booking.openDays} />
+        <DatePicker value={date} onChange={(iso) => { setDate(iso); setTime(""); }} minDate={minDate} maxDate={maxDate} openDays={rules.booking.openDays} closures={closures} />
       </div>
       {date && (
         <div className="mt-4">
           <QueryState loading={availability.loading} error={availability.error} onRetry={availability.reload} loadingLabel="Checking availability">
             {availability.data && !availability.data.open ? (
               <p className="text-sm">The salon is closed on this day. Please choose another date.</p>
+            ) : availability.data?.stylistOff ? (
+              <p className="text-sm">Your stylist is off on this day{availability.data.stylistOffReason ? ` (${availability.data.stylistOffReason})` : ""}. Choose another date, or untick &ldquo;keep the same stylist&rdquo;.</p>
             ) : (
+              <>
+              {!!availability.data?.closedWindows?.length && (
+                <p className="mb-3 text-sm text-charcoal/70">Not available: {availability.data.closedWindows.map((w) => `${w.from}–${w.to}`).join(", ")}.</p>
+              )}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" role="radiogroup" aria-label="Available times">
                 {(availability.data?.slots ?? []).map((s) => (
                   <button key={s.time} type="button" role="radio" aria-checked={time === s.time} disabled={!s.available} onClick={() => setTime(s.time)}
@@ -91,6 +104,7 @@ export function RescheduleBooking({ booking, email, onDone }: { booking: Booking
                   </button>
                 ))}
               </div>
+              </>
             )}
           </QueryState>
         </div>

@@ -3,21 +3,19 @@ import { z } from "zod";
 import { all, get, run, tx } from "../db.js";
 import { asyncHandler, HttpError, notFound } from "../lib/errors.js";
 import { requireAdmin } from "../lib/auth.js";
-import { BusinessValidationError, EMPTY_BUSINESS, parseBusiness, publicBusiness, type BusinessSettings } from "../lib/business.js";
+import { BusinessValidationError, parseBusiness, publicBusiness, type BusinessSettings } from "../lib/business.js";
+import { loadBusiness } from "../lib/businessStore.js";
 import { markStylistsManaged, RESERVED_STYLIST_IDS, slugifyName, stylistsManaged } from "../lib/stylists.js";
 import { realStylists } from "../site.js";
-import { nowIso, todayEAT } from "../lib/util.js";
+import { isValidISODate, nowIso, todayEAT } from "../lib/util.js";
+import { activeStylists } from "../lib/stylists.js";
+import { loadStoredRules, rowToRule } from "../lib/closureStore.js";
+import { countAffected, describeRule, parseRuleInput } from "../lib/closures.js";
 
 export const settingsRouter = Router();
 settingsRouter.use("/admin", requireAdmin);
 
 // ---- business details ---------------------------------------------------------------------------
-
-async function loadBusiness(): Promise<BusinessSettings> {
-  const row = await get<{ value: string }>("SELECT value FROM app_settings WHERE key='business'");
-  if (!row) return { ...EMPTY_BUSINESS };
-  try { return { ...EMPTY_BUSINESS, ...JSON.parse(row.value) }; } catch { return { ...EMPTY_BUSINESS }; }
-}
 
 /** Public: contact details, opening hours and social links shown in the footer and on the Contact page. */
 settingsRouter.get("/business", asyncHandler(async (_req, res) => {
@@ -93,5 +91,73 @@ settingsRouter.delete("/admin/stylists/:id", asyncHandler(async (req, res) => {
   const used = await get("SELECT 1 FROM bookings WHERE stylist_id=$1 LIMIT 1", cur.id);
   if (used) throw new HttpError(409, "This stylist has booking history, so they can't be deleted. Turn them off instead.");
   await run("DELETE FROM stylists WHERE id=$1", cur.id);
+  res.json({ ok: true });
+}));
+
+// ---- closed days ---------------------------------------------------------------------------------
+
+settingsRouter.get("/admin/closed-days", asyncHandler(async (_req, res) => {
+  const rows = await all<{ date: string; reason: string }>("SELECT date, reason FROM closed_days WHERE date >= $1 ORDER BY date", todayEAT());
+  res.json(await Promise.all(rows.map(async (r) => ({
+    ...r,
+    affectedBookings: Number((await get<{ n: string }>("SELECT COUNT(*) AS n FROM bookings WHERE date=$1 AND status IN ('pending_deposit','confirmed')", r.date))?.n ?? 0),
+  }))));
+}));
+
+settingsRouter.post("/admin/closed-days", asyncHandler(async (req, res) => {
+  const body = z.object({ date: z.string(), reason: z.string().trim().max(120).default("") }).parse(req.body);
+  if (!isValidISODate(body.date)) throw new HttpError(400, "Date must be YYYY-MM-DD", { date: "Invalid date" });
+  if (body.date < todayEAT()) throw new HttpError(400, "Pick today or a future date", { date: "Date is in the past" });
+  await run("INSERT INTO closed_days (date,reason,created_at) VALUES ($1,$2,$3) ON CONFLICT (date) DO UPDATE SET reason=EXCLUDED.reason", body.date, body.reason, nowIso());
+  const n = Number((await get<{ n: string }>("SELECT COUNT(*) AS n FROM bookings WHERE date=$1 AND status IN ('pending_deposit','confirmed')", body.date))?.n ?? 0);
+  res.status(201).json({ date: body.date, reason: body.reason, affectedBookings: n });
+}));
+
+settingsRouter.delete("/admin/closed-days/:date", asyncHandler(async (req, res) => {
+  const r = await run("DELETE FROM closed_days WHERE date=$1", req.params.date);
+  if (r.rowCount === 0) throw notFound("Closed day");
+  res.json({ ok: true });
+}));
+
+// ---- recurring, part-day and per-stylist closures -----------------------------------------------
+
+async function upcomingActiveBookings() {
+  const rows = await all<{ date: string; time: string; stylist_id: string; duration_minutes: number | string | null }>(
+    "SELECT date, time, stylist_id, duration_minutes FROM bookings WHERE date >= $1 AND status IN ('pending_deposit','confirmed')", todayEAT());
+  return rows.map((b) => ({ date: b.date, time: b.time, stylistId: b.stylist_id, durationMinutes: Number(b.duration_minutes ?? 60) }));
+}
+
+settingsRouter.get("/admin/closures", asyncHandler(async (_req, res) => {
+  const [rules, bookings, stylists] = await Promise.all([loadStoredRules(), upcomingActiveBookings(), activeStylists()]);
+  const today = todayEAT();
+  res.json(rules
+    // hide one-off rules that are already over
+    .filter((r) => r.recurrence !== "once" || (r.endDate ?? r.startDate ?? "") >= today)
+    .map((r) => ({
+      ...r,
+      stylistName: r.stylistId ? (stylists.find((s) => s.id === r.stylistId)?.name ?? r.stylistId) : null,
+      summary: describeRule(r),
+      affectedBookings: countAffected(r, bookings),
+    })));
+}));
+
+settingsRouter.post("/admin/closures", asyncHandler(async (req, res) => {
+  const parsed = parseRuleInput(req.body, todayEAT());
+  if (!parsed.ok) throw new HttpError(400, "Please check the highlighted fields", parsed.fields);
+  const v = parsed.value;
+  if (v.stylistId && !(await activeStylists()).some((s) => s.id === v.stylistId)) throw new HttpError(400, "Unknown stylist", { stylistId: "Unknown stylist" });
+  const r = await get<any>(
+    `INSERT INTO closure_rules (stylist_id,recurrence,start_date,end_date,weekday,month_day,start_time,end_time,reason,created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    v.stylistId, v.recurrence, v.startDate, v.endDate, v.weekday, v.monthDay, v.startTime, v.endTime, v.reason, nowIso());
+  const rule = rowToRule(r);
+  res.status(201).json({ ...rule, summary: describeRule(rule), affectedBookings: countAffected(rule, await upcomingActiveBookings()) });
+}));
+
+settingsRouter.delete("/admin/closures/:id", asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) throw notFound("Closure");
+  const r = await run("DELETE FROM closure_rules WHERE id=$1", id);
+  if (r.rowCount === 0) throw notFound("Closure");
   res.json({ ok: true });
 }));

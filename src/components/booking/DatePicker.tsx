@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { ClosureDate } from "../../api/endpoints";
 import { parseISODate, toISODate } from "../../utils/format";
 
 interface Props {
@@ -9,11 +10,13 @@ interface Props {
   maxDate: Date;
   /** Days of the week the salon takes bookings (0 = Sunday), from the business rules. */
   openDays: readonly number[];
+  /** Closed / part-day-closed dates from the server (recurring closures, days off, holidays), keyed by ISO date. */
+  closures?: Record<string, ClosureDate>;
 }
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function DatePicker({ value, onChange, minDate, maxDate, openDays }: Props) {
+export function DatePicker({ value, onChange, minDate, maxDate, openDays, closures }: Props) {
   const initial = value ? parseISODate(value) : minDate;
   const [view, setView] = useState(new Date(initial.getFullYear(), initial.getMonth(), 1));
 
@@ -51,8 +54,16 @@ export function DatePicker({ value, onChange, minDate, maxDate, openDays }: Prop
           if (!d) return <div key={`e${i}`} />;
           const iso = toISODate(d);
           const t = stripTime(d);
-          const disabled = t < stripTime(minDate) || t > stripTime(maxDate) || !openDays.includes(d.getDay());
+          const closure = closures?.[iso];
+          const closedByRule = closure?.kind === "closed";
+          const partial = closure?.kind === "partial";
+          const disabled = t < stripTime(minDate) || t > stripTime(maxDate) || !openDays.includes(d.getDay()) || closedByRule;
           const selected = iso === value;
+          const hint = closedByRule
+            ? `Closed${closure.reason ? `: ${closure.reason}` : ""}`
+            : partial
+              ? `Closed ${closure.windows?.map((w) => `${w.from}–${w.to}`).join(", ")}`
+              : undefined;
           return (
             <button
               key={iso}
@@ -60,17 +71,19 @@ export function DatePicker({ value, onChange, minDate, maxDate, openDays }: Prop
               disabled={disabled}
               onClick={() => onChange(iso)}
               aria-pressed={selected}
-              aria-label={d.toLocaleDateString("en-KE", { weekday: "long", day: "numeric", month: "long" })}
-              className={`aspect-square rounded-lg text-sm font-medium transition ${
+              aria-label={`${d.toLocaleDateString("en-KE", { weekday: "long", day: "numeric", month: "long" })}${hint ? `. ${hint}` : ""}`}
+              title={hint}
+              className={`relative aspect-square rounded-lg text-sm font-medium transition ${closedByRule && !selected ? "line-through " : ""}${
                 selected ? "bg-charcoal text-offwhite" : disabled ? "cursor-not-allowed text-charcoal/25" : "hover:bg-gold/25"
               }`}
             >
               {d.getDate()}
+              {partial && !disabled && <span aria-hidden className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-brown" />}
             </button>
           );
         })}
       </div>
-      <p className="mt-4 text-xs text-charcoal/55">Greyed-out days are closed or outside the booking window. Time slots are checked live on the next steps.</p>
+      <p className="mt-4 text-xs text-charcoal/55">Greyed-out days are closed or outside the booking window. A dot under a date means the salon is closed for part of that day. Time slots are checked live on the next steps.</p>
     </div>
   );
 }
